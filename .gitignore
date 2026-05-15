@@ -1,0 +1,17 @@
+# Build/binary
+whatsapp-api
+*.exe
+
+# Cache/Logs
+*.log
+.DS_Store
+.idea/
+
+# Secret/Env
+.env
+.env.local
+*.pem
+
+# Memory files (Hide)
+*.md
+!README.md
