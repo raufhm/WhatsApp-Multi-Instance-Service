@@ -57,13 +57,3 @@ func (l *LoggerDispatcher) DispatchEvent(event domain.InstanceEvent) {
 func (l *LoggerDispatcher) UpdateGroup(group domain.GroupInfo) {
 	log.Printf("GROUP UPDATE: %s (%s) | Participants: %d", group.Name, group.GroupID, group.ParticipantCount)
 }
-
-// Deprecated: Use MultiDispatcher
-type MultiInterceptor struct {
-	MultiDispatcher
-}
-
-// Deprecated: Use LoggerDispatcher
-type LoggerInterceptor struct {
-	LoggerDispatcher
-}

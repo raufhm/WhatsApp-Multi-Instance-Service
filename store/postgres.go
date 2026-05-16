@@ -111,13 +111,3 @@ func (p *PostgresStore) UpdateGroup(group domain.GroupInfo) {
 		log.Printf("PG Store UpdateGroup Error: %v", err)
 	}
 }
-
-// Deprecated: Use DispatchMessage
-func (p *PostgresStore) Intercept(meta domain.MessageMetadata) {
-	p.DispatchMessage(meta)
-}
-
-// Deprecated: Use DispatchEvent
-func (p *PostgresStore) Alert(event domain.InstanceEvent) {
-	p.DispatchEvent(event)
-}

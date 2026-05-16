@@ -478,16 +478,6 @@ func (wm *WhatsAppManager) SendMessageRequest(host string, req domain.MessageReq
 	return nil
 }
 
-// Deprecated: Use SendMessageRequest
-func (wm *WhatsAppManager) SendMessage(host, recipient, msg string, isGroup bool) error {
-	return wm.SendMessageRequest(host, domain.MessageRequest{
-		Recipient: recipient,
-		Message:   msg,
-		IsGroup:   isGroup,
-		Type:      domain.Text,
-	})
-}
-
 func (wm *WhatsAppManager) ListInstances() []domain.InstanceInfo {
 	wm.mu.RLock()
 	defer wm.mu.RUnlock()
