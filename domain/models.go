@@ -16,6 +16,8 @@ type MessageType string
 const (
 	Text     MessageType = "TEXT"
 	Image    MessageType = "IMAGE"
+	Video    MessageType = "VIDEO"
+	Audio    MessageType = "AUDIO"
 	File     MessageType = "FILE"
 	Reaction MessageType = "REACTION"
 )
@@ -34,14 +36,14 @@ type MessageMetadata struct {
 	WhatsappID     string        `json:"whatsapp_id"`
 	HostID         string        `json:"host_id"`
 	Sender         string        `json:"sender"`
-	Recipient      string        `json:"recipient"` // Group JID or User JID
+	Recipient      string        `json:"recipient"`
 	Content        string        `json:"content"`
 	IsGroup        bool          `json:"is_group"`
 	Direction      Direction     `json:"direction"`
 	Type           MessageType   `json:"type"`
 	Status         MessageStatus `json:"status"`
 	MediaURL       string        `json:"media_url,omitempty"`
-	ReactionTarget string        `json:"reaction_target,omitempty"` // Message ID of the message being reacted to
+	ReactionTarget string        `json:"reaction_target,omitempty"`
 	Timestamp      time.Time     `json:"timestamp"`
 }
 
@@ -59,7 +61,7 @@ type MessageRequest struct {
 	IsGroup        bool        `json:"is_group"`
 	Type           MessageType `json:"type"`
 	MediaPath      string      `json:"media_path,omitempty"`
-	ReactionTarget string      `json:"reaction_target,omitempty"` // Message ID for sending reactions
+	ReactionTarget string      `json:"reaction_target,omitempty"`
 }
 
 type InstanceStatus string
@@ -89,28 +91,16 @@ type GroupInfo struct {
 	Name             string    `json:"name"`
 	Description      string    `json:"description"`
 	OwnerJID         string    `json:"owner_jid"`
-	Participants     []string  `json:"participants"` // Phone numbers
-	Hosts            []string  `json:"hosts"`        // Bot phone numbers
+	Participants     []string  `json:"participants"`
+	Hosts            []string  `json:"hosts"`
 	ParticipantCount int       `json:"participant_count"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
 }
 
-// Interfaces
 type Dispatcher interface {
 	DispatchMessage(meta MessageMetadata)
 	DispatchReceipt(receipt Receipt)
-	DispatchEvent(event InstanceEvent)
+	UpdateInstanceStatus(hostID string, status InstanceStatus, isConnected bool)
 	UpdateGroup(group GroupInfo)
-}
-
-type MessageInterceptor interface {
-	Intercept(meta MessageMetadata)
-}
-
-type AlertService interface {
-	Alert(event InstanceEvent)
-}
-
-type LIDResolver interface {
 }

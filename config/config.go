@@ -5,15 +5,18 @@ import (
 )
 
 type Config struct {
-	PG_DSN string `mapstructure:"PG_DSN"`
-	PORT   string `mapstructure:"PORT"`
+	PGDSN    string
+	Port     string
+	S3Bucket string
 }
 
-func LoadConfig() (config Config, err error) {
+func LoadConfig() (Config, error) {
 	viper.SetDefault("PORT", "8080")
 	viper.AutomaticEnv()
 
-	config.PORT = viper.GetString("PORT")
-	config.PG_DSN = viper.GetString("PG_DSN")
-	return
+	return Config{
+		Port:     viper.GetString("PORT"),
+		PGDSN:    viper.GetString("PG_DSN"),
+		S3Bucket: viper.GetString("S3_BUCKET"),
+	}, nil
 }

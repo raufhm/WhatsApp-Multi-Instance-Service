@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/raufhm/whatsapp-testing/domain"
+	"github.com/raufhm/whatsapp-testing/internal/storage"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store"
@@ -27,23 +28,24 @@ type WhatsAppInstance struct {
 	HostJID     types.JID
 	HostPhone   string
 	Manager     *WhatsAppManager
+	S3          *storage.S3Storage
 	IsConnected bool
 }
 
 type WhatsAppManager struct {
-	Instances   map[string]*WhatsAppInstance
-	Container   *sqlstore.Container
-	Dispatcher  domain.Dispatcher
-	LIDResolver domain.LIDResolver
-	mu          sync.RWMutex
+	Instances  map[string]*WhatsAppInstance
+	Container  *sqlstore.Container
+	Dispatcher domain.Dispatcher
+	S3         *storage.S3Storage
+	mu         sync.RWMutex
 }
 
-func NewWhatsAppManager(container *sqlstore.Container, dispatcher domain.Dispatcher, lid domain.LIDResolver) *WhatsAppManager {
+func NewWhatsAppManager(container *sqlstore.Container, dispatcher domain.Dispatcher, s3Store *storage.S3Storage) *WhatsAppManager {
 	return &WhatsAppManager{
-		Instances:   make(map[string]*WhatsAppInstance),
-		Container:   container,
-		Dispatcher:  dispatcher,
-		LIDResolver: lid,
+		Instances:  make(map[string]*WhatsAppInstance),
+		Container:  container,
+		Dispatcher: dispatcher,
+		S3:         s3Store,
 	}
 }
 
@@ -64,11 +66,12 @@ func (wm *WhatsAppManager) SpawnInstance(device *store.Device) error {
 		Client:  client,
 		Queue:   make(chan domain.MessageRequest, 100),
 		Manager: wm,
+		S3:      wm.S3,
 	}
 	client.AddEventHandler(instance.eventHandler)
 
 	if err := client.Connect(); err != nil {
-		wm.notifyStatus(device.ID.User, domain.StatusError, fmt.Sprintf("Connection failed: %v", err))
+		wm.notifyStatus(device.ID.User, domain.StatusError, false)
 		return err
 	}
 
@@ -77,15 +80,16 @@ func (wm *WhatsAppManager) SpawnInstance(device *store.Device) error {
 		instance.HostPhone = instance.resolvePhone(instance.HostJID)
 		instance.IsConnected = true
 
-		// Ensure unique instance per host: Stop old if exists
+		// Ensure unique instance per host: stop old if exists.
 		wm.StopInstance(instance.HostPhone)
 
 		wm.mu.Lock()
 		wm.Instances[instance.HostPhone] = instance
 		wm.mu.Unlock()
 		go instance.worker()
-		wm.notifyStatus(instance.HostPhone, domain.StatusOnline, "Connected")
+		wm.notifyStatus(instance.HostPhone, domain.StatusOnline, true)
 	}
+
 	return nil
 }
 
@@ -99,14 +103,9 @@ func (wm *WhatsAppManager) StopInstance(host string) {
 	}
 }
 
-func (wm *WhatsAppManager) notifyStatus(host string, status domain.InstanceStatus, msg string) {
+func (wm *WhatsAppManager) notifyStatus(host string, status domain.InstanceStatus, isConnected bool) {
 	if wm.Dispatcher != nil {
-		wm.Dispatcher.DispatchEvent(domain.InstanceEvent{
-			HostID:    host,
-			Status:    status,
-			Message:   msg,
-			Timestamp: time.Now(),
-		})
+		wm.Dispatcher.UpdateInstanceStatus(host, status, isConnected)
 	}
 }
 
@@ -142,7 +141,6 @@ func (i *WhatsAppInstance) processRequest(req domain.MessageRequest) {
 		recipientJID.Server = types.GroupServer
 	}
 
-	// Human Simulation: Presence
 	i.Client.SendChatPresence(context.Background(), recipientJID, types.ChatPresenceComposing, types.ChatPresenceMediaText)
 	time.Sleep(time.Duration(500+rand.Intn(1000)) * time.Millisecond)
 
@@ -150,7 +148,7 @@ func (i *WhatsAppInstance) processRequest(req domain.MessageRequest) {
 	var resp whatsmeow.SendResponse
 
 	switch req.Type {
-	case domain.Image, domain.File:
+	case domain.Image, domain.File, domain.Video, domain.Audio:
 		resp, err = i.sendMedia(recipientJID, req)
 	case domain.Reaction:
 		resp, err = i.sendReaction(recipientJID, req)
@@ -163,23 +161,33 @@ func (i *WhatsAppInstance) processRequest(req domain.MessageRequest) {
 
 	if err == nil && i.Manager.Dispatcher != nil {
 		i.Manager.Dispatcher.DispatchMessage(domain.MessageMetadata{
-			WhatsappID: resp.ID,
-			HostID:     i.HostPhone, Sender: i.HostPhone, Recipient: req.Recipient,
-			Content: req.Message, IsGroup: req.IsGroup, Direction: domain.Outgoing,
-			Type: req.Type, Status: domain.StatusSent, ReactionTarget: req.ReactionTarget, Timestamp: time.Now(),
+			WhatsappID:     resp.ID,
+			HostID:         i.HostPhone,
+			Sender:         i.HostPhone,
+			Recipient:      req.Recipient,
+			Content:        req.Message,
+			IsGroup:        req.IsGroup,
+			Direction:      domain.Outgoing,
+			Type:           req.Type,
+			Status:         domain.StatusSent,
+			ReactionTarget: req.ReactionTarget,
+			Timestamp:      time.Now(),
 		})
 	} else if err != nil {
 		log.Printf("[%s] Send error: %v", i.HostPhone, err)
 		if i.Manager.Dispatcher != nil {
 			i.Manager.Dispatcher.DispatchMessage(domain.MessageMetadata{
-				HostID: i.HostPhone, Sender: i.HostPhone, Recipient: req.Recipient,
-				Content: req.Message, Direction: domain.Outgoing, Status: domain.StatusFailed,
+				HostID:    i.HostPhone,
+				Sender:    i.HostPhone,
+				Recipient: req.Recipient,
+				Content:   req.Message,
+				Direction: domain.Outgoing,
+				Status:    domain.StatusFailed,
 				Timestamp: time.Now(),
 			})
 		}
 	}
 
-	// Inter-message jitter
 	time.Sleep(time.Duration(1500+rand.Intn(2000)) * time.Millisecond)
 }
 
@@ -194,10 +202,21 @@ func (i *WhatsAppInstance) sendMedia(recipient types.JID, req domain.MessageRequ
 		return whatsmeow.SendResponse{}, err
 	}
 
+	mediaURL := ""
+	if i.S3 != nil {
+		key := fmt.Sprintf("%d_%s", time.Now().UnixNano(), req.MediaPath)
+		mediaURL, _ = i.S3.Upload(data, key, http.DetectContentType(data))
+	}
+
 	var uploadResp whatsmeow.UploadResponse
-	if req.Type == domain.Image {
+	switch req.Type {
+	case domain.Image:
 		uploadResp, err = i.Client.Upload(context.Background(), data, whatsmeow.MediaImage)
-	} else {
+	case domain.Video:
+		uploadResp, err = i.Client.Upload(context.Background(), data, whatsmeow.MediaVideo)
+	case domain.Audio:
+		uploadResp, err = i.Client.Upload(context.Background(), data, whatsmeow.MediaAudio)
+	default:
 		uploadResp, err = i.Client.Upload(context.Background(), data, whatsmeow.MediaDocument)
 	}
 
@@ -206,7 +225,8 @@ func (i *WhatsAppInstance) sendMedia(recipient types.JID, req domain.MessageRequ
 	}
 
 	var msg *waE2E.Message
-	if req.Type == domain.Image {
+	switch req.Type {
+	case domain.Image:
 		msg = &waE2E.Message{ImageMessage: &waE2E.ImageMessage{
 			Caption:       proto.String(req.Message),
 			URL:           proto.String(uploadResp.URL),
@@ -217,7 +237,28 @@ func (i *WhatsAppInstance) sendMedia(recipient types.JID, req domain.MessageRequ
 			FileSHA256:    uploadResp.FileSHA256,
 			FileLength:    proto.Uint64(uint64(len(data))),
 		}}
-	} else {
+	case domain.Video:
+		msg = &waE2E.Message{VideoMessage: &waE2E.VideoMessage{
+			Caption:       proto.String(req.Message),
+			URL:           proto.String(uploadResp.URL),
+			DirectPath:    proto.String(uploadResp.DirectPath),
+			MediaKey:      uploadResp.MediaKey,
+			Mimetype:      proto.String(http.DetectContentType(data)),
+			FileEncSHA256: uploadResp.FileEncSHA256,
+			FileSHA256:    uploadResp.FileSHA256,
+			FileLength:    proto.Uint64(uint64(len(data))),
+		}}
+	case domain.Audio:
+		msg = &waE2E.Message{AudioMessage: &waE2E.AudioMessage{
+			URL:           proto.String(uploadResp.URL),
+			DirectPath:    proto.String(uploadResp.DirectPath),
+			MediaKey:      uploadResp.MediaKey,
+			Mimetype:      proto.String(http.DetectContentType(data)),
+			FileEncSHA256: uploadResp.FileEncSHA256,
+			FileSHA256:    uploadResp.FileSHA256,
+			FileLength:    proto.Uint64(uint64(len(data))),
+		}}
+	default:
 		msg = &waE2E.Message{DocumentMessage: &waE2E.DocumentMessage{
 			Caption:       proto.String(req.Message),
 			Title:         proto.String(req.Message),
@@ -231,7 +272,24 @@ func (i *WhatsAppInstance) sendMedia(recipient types.JID, req domain.MessageRequ
 		}}
 	}
 
-	return i.Client.SendMessage(context.Background(), recipient, msg)
+	resp, err := i.Client.SendMessage(context.Background(), recipient, msg)
+	if err == nil && i.Manager.Dispatcher != nil {
+		i.Manager.Dispatcher.DispatchMessage(domain.MessageMetadata{
+			WhatsappID:     resp.ID,
+			HostID:         i.HostPhone,
+			Sender:         i.HostPhone,
+			Recipient:      req.Recipient,
+			Content:        req.Message,
+			IsGroup:        req.IsGroup,
+			Direction:      domain.Outgoing,
+			Type:           req.Type,
+			Status:         domain.StatusSent,
+			MediaURL:       mediaURL,
+			ReactionTarget: req.ReactionTarget,
+			Timestamp:      time.Now(),
+		})
+	}
+	return resp, err
 }
 
 func (i *WhatsAppInstance) eventHandler(evt interface{}) {
@@ -248,11 +306,11 @@ func (i *WhatsAppInstance) eventHandler(evt interface{}) {
 	case *events.LoggedOut:
 		i.IsConnected = false
 		log.Printf("[%s] Logged out: %s", i.HostPhone, v.Reason)
-		i.Manager.notifyStatus(i.HostPhone, domain.StatusOffline, fmt.Sprintf("Logged out: %s", v.Reason))
+		i.Manager.notifyStatus(i.HostPhone, domain.StatusOffline, false)
 		i.Manager.StopInstance(i.HostPhone)
 	case *events.Connected:
 		i.IsConnected = true
-		i.Manager.notifyStatus(i.HostPhone, domain.StatusOnline, "Connected/Reconnected")
+		i.Manager.notifyStatus(i.HostPhone, domain.StatusOnline, true)
 	case *events.IdentityChange:
 		log.Printf("[%s] Identity change for %s", i.HostPhone, v.JID)
 	case *events.JoinedGroup:
@@ -276,11 +334,11 @@ func (i *WhatsAppInstance) handleReceipt(v *events.Receipt) {
 	case events.ReceiptTypePlayed:
 		status = domain.StatusRead
 	default:
-		// Ignore other types like "inactive" for now
+		// Ignore other types like "inactive".
 		return
 	}
 
-	// For receipts, Sender is the one who sent the receipt (the recipient of the message)
+	// For receipts, Sender is the one who sent the receipt (the recipient of the original message).
 	senderPhone := i.resolvePhone(v.Sender)
 	chatID := senderPhone
 	if v.IsGroup {
@@ -332,7 +390,7 @@ func (i *WhatsAppInstance) handleGroupInfo(groupJID types.JID) {
 	i.Manager.Dispatcher.UpdateGroup(domain.GroupInfo{
 		GroupID:          info.JID.User,
 		Name:             info.Name,
-		Description:      info.Topic, // Use Topic as Description
+		Description:      info.Topic,
 		OwnerJID:         info.OwnerJID.String(),
 		Participants:     participants,
 		Hosts:            hostsInGroup,
@@ -363,31 +421,12 @@ func (i *WhatsAppInstance) handleHistorySync(v *events.HistorySync) {
 				continue
 			}
 
-			content := ""
-			msgType := domain.Text
-			reactionTarget := ""
-
-			if m.GetConversation() != "" {
-				content = m.GetConversation()
-			} else if m.GetExtendedTextMessage().GetText() != "" {
-				content = m.GetExtendedTextMessage().GetText()
-			} else if m.GetImageMessage() != nil {
-				content = "[Image]"
-				msgType = domain.Image
-			} else if m.GetDocumentMessage() != nil {
-				content = "[Document]"
-				msgType = domain.File
-			} else if m.GetReactionMessage() != nil {
-				content = m.GetReactionMessage().GetText()
-				msgType = domain.Reaction
-				reactionTarget = m.GetReactionMessage().GetKey().GetID()
-			}
+			content, msgType, reactionTarget := parseMessageContent(m)
 
 			if content == "" {
 				continue
 			}
 
-			// Identify sender/recipient
 			senderJID := chatJID
 			direction := domain.Incoming
 			if wi.GetKey().GetFromMe() {
@@ -408,43 +447,30 @@ func (i *WhatsAppInstance) handleHistorySync(v *events.HistorySync) {
 			}
 
 			i.Manager.Dispatcher.DispatchMessage(domain.MessageMetadata{
-				WhatsappID: wi.GetKey().GetID(),
-				HostID:     i.HostPhone, Sender: sender, Recipient: recipient,
-				Content: content, IsGroup: chatJID.Server == types.GroupServer, Direction: direction,
-				Type: msgType, Status: domain.StatusSent, ReactionTarget: reactionTarget,
-				Timestamp: time.Unix(int64(wi.GetMessageTimestamp()), 0),
+				WhatsappID:     wi.GetKey().GetID(),
+				HostID:         i.HostPhone,
+				Sender:         sender,
+				Recipient:      recipient,
+				Content:        content,
+				IsGroup:        chatJID.Server == types.GroupServer,
+				Direction:      direction,
+				Type:           msgType,
+				Status:         domain.StatusSent,
+				ReactionTarget: reactionTarget,
+				Timestamp:      time.Unix(int64(wi.GetMessageTimestamp()), 0),
 			})
 		}
 	}
 }
 
 func (i *WhatsAppInstance) handleIncomingMessage(v *events.Message) {
-	log.Printf("[%s] Received message event: %s from %s", i.HostPhone, v.Info.ID, v.Info.Sender)
-
-	content := ""
-	msgType := domain.Text
-	reactionTarget := ""
-
-	if v.Message.GetConversation() != "" {
-		content = v.Message.GetConversation()
-	} else if v.Message.GetExtendedTextMessage().GetText() != "" {
-		content = v.Message.GetExtendedTextMessage().GetText()
-	} else if v.Message.GetImageMessage() != nil {
-		content = "[Image]"
-		msgType = domain.Image
-	} else if v.Message.GetDocumentMessage() != nil {
-		content = "[Document]"
-		msgType = domain.File
-	} else if v.Message.GetReactionMessage() != nil {
-		content = v.Message.GetReactionMessage().GetText()
-		msgType = domain.Reaction
-		reactionTarget = v.Message.GetReactionMessage().GetKey().GetID()
-	}
+	content, msgType, reactionTarget := parseMessageContent(v.Message)
 
 	if content == "" {
-		log.Printf("[%s] Empty or unsupported message type for ID %s", i.HostPhone, v.Info.ID)
 		return
 	}
+
+	log.Printf("[%s] Received message: %s from %s", i.HostPhone, v.Info.ID, v.Info.Sender)
 
 	sender := i.resolvePhone(v.Info.Sender)
 	recipient := i.HostPhone
@@ -459,12 +485,53 @@ func (i *WhatsAppInstance) handleIncomingMessage(v *events.Message) {
 
 	if i.Manager.Dispatcher != nil {
 		i.Manager.Dispatcher.DispatchMessage(domain.MessageMetadata{
-			WhatsappID: v.Info.ID,
-			HostID:     i.HostPhone, Sender: sender, Recipient: recipient,
-			Content: content, IsGroup: v.Info.IsGroup, Direction: direction,
-			Type: msgType, Status: domain.StatusSent, ReactionTarget: reactionTarget, Timestamp: v.Info.Timestamp,
+			WhatsappID:     v.Info.ID,
+			HostID:         i.HostPhone,
+			Sender:         sender,
+			Recipient:      recipient,
+			Content:        content,
+			IsGroup:        v.Info.IsGroup,
+			Direction:      direction,
+			Type:           msgType,
+			Status:         domain.StatusSent,
+			ReactionTarget: reactionTarget,
+			Timestamp:      v.Info.Timestamp,
 		})
 	}
+}
+
+func parseMessageContent(m *waE2E.Message) (content string, msgType domain.MessageType, reactionTarget string) {
+	if m == nil {
+		return "", domain.Text, ""
+	}
+	msgType = domain.Text
+
+	switch {
+	case m.GetConversation() != "":
+		content = m.GetConversation()
+	case m.GetExtendedTextMessage().GetText() != "":
+		content = m.GetExtendedTextMessage().GetText()
+	case m.GetImageMessage() != nil:
+		content = "[Image]"
+		msgType = domain.Image
+	case m.GetVideoMessage() != nil:
+		content = "[Video]"
+		msgType = domain.Video
+	case m.GetAudioMessage() != nil:
+		content = "[Audio]"
+		msgType = domain.Audio
+	case m.GetDocumentMessage() != nil:
+		content = "[Document]"
+		msgType = domain.File
+	case m.GetReactionMessage() != nil:
+		content = m.GetReactionMessage().GetText()
+		msgType = domain.Reaction
+		reactionTarget = m.GetReactionMessage().GetKey().GetID()
+	case m.GetProtocolMessage() != nil:
+		return "", domain.Text, ""
+	}
+
+	return content, msgType, reactionTarget
 }
 
 func (wm *WhatsAppManager) SendMessageRequest(host string, req domain.MessageRequest) error {

@@ -1,4 +1,4 @@
-package store
+package storage
 
 import (
 	"database/sql"
@@ -51,18 +51,18 @@ func runMigrations(db *sql.DB) error {
 }
 
 func (p *PostgresStore) DispatchMessage(meta domain.MessageMetadata) {
-	query := `INSERT INTO public.messages (whatsapp_id, host_id, sender, recipient, content, is_group, direction, msg_type, reaction_target, status, timestamp) 
-	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	query := `INSERT INTO whatsmeow_messages (whatsapp_id, host_id, sender, recipient, content, is_group, direction, msg_type, reaction_target, media_url, status, timestamp) 
+	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	          ON CONFLICT (whatsapp_id) DO UPDATE 
 	          SET status = EXCLUDED.status`
-	_, err := p.db.Exec(query, meta.WhatsappID, meta.HostID, meta.Sender, meta.Recipient, meta.Content, meta.IsGroup, string(meta.Direction), string(meta.Type), meta.ReactionTarget, string(meta.Status), meta.Timestamp)
+	_, err := p.db.Exec(query, meta.WhatsappID, meta.HostID, meta.Sender, meta.Recipient, meta.Content, meta.IsGroup, string(meta.Direction), string(meta.Type), meta.ReactionTarget, meta.MediaURL, string(meta.Status), meta.Timestamp)
 	if err != nil {
 		log.Printf("PG Store DispatchMessage Error: %v", err)
 	}
 }
 
 func (p *PostgresStore) DispatchReceipt(receipt domain.Receipt) {
-	query := `INSERT INTO public.message_receipts (whatsapp_id, recipient_id, status, timestamp) 
+	query := `INSERT INTO whatsmeow_message_receipts (whatsapp_id, recipient_id, status, timestamp) 
 	          VALUES ($1, $2, $3, $4)
 	          ON CONFLICT (whatsapp_id, recipient_id, status) DO NOTHING`
 	_, err := p.db.Exec(query, receipt.WhatsappID, receipt.Recipient, string(receipt.Status), receipt.Timestamp)
@@ -72,32 +72,27 @@ func (p *PostgresStore) DispatchReceipt(receipt domain.Receipt) {
 
 	// Update main message status if read
 	if receipt.Status == domain.StatusRead || receipt.Status == domain.StatusDelivered {
-		updateQuery := `UPDATE public.messages SET status = $1 WHERE whatsapp_id = $2 AND direction = 'OUTGOING'`
+		updateQuery := `UPDATE whatsmeow_messages SET status = $1 WHERE whatsapp_id = $2 AND direction = 'OUTGOING'`
 		_, _ = p.db.Exec(updateQuery, string(receipt.Status), receipt.WhatsappID)
 	}
 }
 
-func (p *PostgresStore) DispatchEvent(event domain.InstanceEvent) {
-	log.Printf("ALERT [%s]: %s - %s", event.Status, event.HostID, event.Message)
-
-	queryEvent := `INSERT INTO public.instance_events (host_id, status, message, timestamp) VALUES ($1, $2, $3, $4)`
-	_, _ = p.db.Exec(queryEvent, event.HostID, string(event.Status), event.Message, event.Timestamp)
-
-	isConnected := event.Status == domain.StatusOnline
-	queryStatus := `INSERT INTO public.instances (host_id, status, is_connected, last_seen) 
-	                VALUES ($1, $2, $3, $4)
-	                ON CONFLICT (host_id) DO UPDATE 
-	                SET status = EXCLUDED.status, 
-	                    is_connected = EXCLUDED.is_connected, 
-	                    last_seen = EXCLUDED.last_seen`
-	_, _ = p.db.Exec(queryStatus, event.HostID, string(event.Status), isConnected, event.Timestamp)
+func (p *PostgresStore) UpdateInstanceStatus(hostID string, status domain.InstanceStatus, isConnected bool) {
+	query := `INSERT INTO whatsmeow_instances (host_id, status, is_connected, last_seen)
+	          VALUES ($1, $2, $3, NOW())
+	          ON CONFLICT (host_id) DO UPDATE
+	          SET status = EXCLUDED.status,
+	              is_connected = EXCLUDED.is_connected,
+	              last_seen = NOW()`
+	if _, err := p.db.Exec(query, hostID, string(status), isConnected); err != nil {
+		log.Printf("PG Store UpdateInstanceStatus Error: %v", err)
+	}
 }
-
 func (p *PostgresStore) UpdateGroup(group domain.GroupInfo) {
 	participantsJSON, _ := json.Marshal(group.Participants)
 	hostsJSON, _ := json.Marshal(group.Hosts)
 
-	query := `INSERT INTO public.groups (group_id, name, description, owner_jid, participants, hosts, participant_count, created_at, updated_at)
+	query := `INSERT INTO whatsmeow_groups (group_id, name, description, owner_jid, participants, hosts, participant_count, created_at, updated_at)
 	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	          ON CONFLICT (group_id) DO UPDATE 
 	          SET name = EXCLUDED.name,

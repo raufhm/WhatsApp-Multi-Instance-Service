@@ -26,9 +26,9 @@ func (m *MultiDispatcher) DispatchReceipt(receipt domain.Receipt) {
 	}
 }
 
-func (m *MultiDispatcher) DispatchEvent(event domain.InstanceEvent) {
+func (m *MultiDispatcher) UpdateInstanceStatus(hostID string, status domain.InstanceStatus, isConnected bool) {
 	for _, d := range m.dispatchers {
-		d.DispatchEvent(event)
+		d.UpdateInstanceStatus(hostID, status, isConnected)
 	}
 }
 
@@ -41,19 +41,16 @@ func (m *MultiDispatcher) UpdateGroup(group domain.GroupInfo) {
 type LoggerDispatcher struct{}
 
 func (l *LoggerDispatcher) DispatchMessage(meta domain.MessageMetadata) {
-	log.Printf("[%s] [%s] %s -> %s | Type: %s | Content: %s | Status: %s",
-		meta.Direction, meta.HostID, meta.Sender, meta.Recipient, meta.Type, meta.Content, meta.Status)
+	log.Printf("[%s] [%s] MessageID: %s | Type: %s | Status: %s",
+		meta.Direction, meta.HostID, meta.WhatsappID, meta.Type, meta.Status)
 }
 
-func (l *LoggerDispatcher) DispatchReceipt(receipt domain.Receipt) {
-	log.Printf("RECEIPT [%s]: %s -> %s | Status: %s",
-		receipt.WhatsappID, receipt.Sender, receipt.Recipient, receipt.Status)
-}
+func (l *LoggerDispatcher) DispatchReceipt(receipt domain.Receipt) {}
 
-func (l *LoggerDispatcher) DispatchEvent(event domain.InstanceEvent) {
-	log.Printf("EVENT [%s]: %s - %s", event.Status, event.HostID, event.Message)
+func (l *LoggerDispatcher) UpdateInstanceStatus(hostID string, status domain.InstanceStatus, isConnected bool) {
+	log.Printf("STATUS [%s]: %s", hostID, status)
 }
 
 func (l *LoggerDispatcher) UpdateGroup(group domain.GroupInfo) {
-	log.Printf("GROUP UPDATE: %s (%s) | Participants: %d", group.Name, group.GroupID, group.ParticipantCount)
+	log.Printf("GROUP UPDATE: %s (%s)", group.Name, group.GroupID)
 }

@@ -9,10 +9,14 @@ import (
 )
 
 type MockDispatcher struct {
-	Messages []domain.MessageMetadata
-	Events   []domain.InstanceEvent
 	mu       sync.Mutex
+	Messages []domain.MessageMetadata
+	Receipts []domain.Receipt
+	Statuses []domain.InstanceEvent
+	Groups   []domain.GroupInfo
 }
+
+var _ domain.Dispatcher = (*MockDispatcher)(nil)
 
 func (m *MockDispatcher) DispatchMessage(meta domain.MessageMetadata) {
 	m.mu.Lock()
@@ -20,10 +24,26 @@ func (m *MockDispatcher) DispatchMessage(meta domain.MessageMetadata) {
 	m.Messages = append(m.Messages, meta)
 }
 
-func (m *MockDispatcher) DispatchEvent(event domain.InstanceEvent) {
+func (m *MockDispatcher) DispatchReceipt(receipt domain.Receipt) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.Events = append(m.Events, event)
+	m.Receipts = append(m.Receipts, receipt)
+}
+
+func (m *MockDispatcher) UpdateInstanceStatus(hostID string, status domain.InstanceStatus, isConnected bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Statuses = append(m.Statuses, domain.InstanceEvent{
+		HostID:    hostID,
+		Status:    status,
+		Timestamp: time.Now(),
+	})
+}
+
+func (m *MockDispatcher) UpdateGroup(group domain.GroupInfo) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Groups = append(m.Groups, group)
 }
 
 func TestDispatcherContract(t *testing.T) {
@@ -36,7 +56,6 @@ func TestDispatcherContract(t *testing.T) {
 		Content:    "Hello",
 		Timestamp:  now,
 	}
-
 	mock.DispatchMessage(msg)
 
 	if len(mock.Messages) != 1 {
@@ -46,15 +65,12 @@ func TestDispatcherContract(t *testing.T) {
 		t.Errorf("Expected test-id, got %s", mock.Messages[0].WhatsappID)
 	}
 
-	evt := domain.InstanceEvent{
-		HostID:    "host-1",
-		Status:    domain.StatusOnline,
-		Timestamp: now,
+	mock.UpdateInstanceStatus("host-1", domain.StatusOnline, true)
+
+	if len(mock.Statuses) != 1 {
+		t.Errorf("Expected 1 status event, got %d", len(mock.Statuses))
 	}
-
-	mock.DispatchEvent(evt)
-
-	if len(mock.Events) != 1 {
-		t.Errorf("Expected 1 event, got %d", len(mock.Events))
+	if mock.Statuses[0].HostID != "host-1" {
+		t.Errorf("Expected host-1, got %s", mock.Statuses[0].HostID)
 	}
 }

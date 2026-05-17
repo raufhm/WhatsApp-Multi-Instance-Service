@@ -15,3 +15,6 @@ whatsapp-api
 # Memory files (Hide)
 *.md
 !README.md
+
+# Assets
+/storage
