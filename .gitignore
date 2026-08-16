@@ -1,20 +1,35 @@
-# Build/binary
-whatsapp-api
+# Build artifacts
+/dist/
+/backend/dist/*
+!/backend/dist/.gitkeep
+/frontend/node_modules/
+node_modules/
 *.exe
+whatsapp-service
+whatsapp-api
 
-# Cache/Logs
-*.log
-.DS_Store
-.idea/
-
-# Secret/Env
+# Secrets / env
 .env
 .env.local
 *.pem
 
-# Memory files (Hide)
-*.md
-!README.md
+# Native/cache
+.DS_Store
+.idea/
+.vscode/
+*.log
 
-# Assets
-/storage
+# AI agent harnesses
+.junie/
+.claude/
+.cursor/
+.codex/
+.aider/
+.aider*
+.cursorrules
+.windsurf/
+
+# Storage / sessions (runtime data)
+/storage/
+/sessions/
+/backend/sessions/

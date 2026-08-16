@@ -1,0 +1,9 @@
+DROP TABLE IF EXISTS activities;
+DROP TABLE IF EXISTS bot_sessions;
+DROP TABLE IF EXISTS conversation_messages;
+DROP TABLE IF EXISTS conversations;
+DROP SEQUENCE IF EXISTS conversation_ticket_number_seq;
+DROP TABLE IF EXISTS contacts;
+DROP TABLE IF EXISTS whatsapp_accounts;
+DROP TABLE IF EXISTS api_keys;
+DROP TABLE IF EXISTS tenants;

@@ -1,0 +1,39 @@
+# Build/binary
+whatsapp-service
+whatsapp-api
+*.exe
+dist/
+backend/dist/*
+!backend/dist/.gitkeep
+
+# Dependencies
+node_modules/
+frontend/node_modules/
+
+# Cache/Logs
+*.log
+.DS_Store
+.idea/
+.vscode/
+
+# Secret/Env
+.env
+.env.local
+*.pem
+
+# Git / CI / AI harnesses
+.git/
+.github/
+.junie/
+.claude/
+.cursor/
+.codex/
+.aider/
+.aider*
+.cursorrules
+.windsurf/
+
+# Assets / sessions
+/storage/
+/sessions/
+/backend/sessions/
