@@ -28,7 +28,7 @@ services:
       PORT: "8080"
       S3_BUCKET: ""
       BOT_SESSION_TIMEOUT: "30m"
-      BOT_FALLBACK_REPLY: "I'm sorry, I didn't understand that."
+      BOT_FALLBACK_REPLY: ""
       BOT_RULES_VERSION: "default"
       LOG_LEVEL: "INFO"
       UPLOAD_WORKER_ENABLED: "true"

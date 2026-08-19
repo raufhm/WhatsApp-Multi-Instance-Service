@@ -15,7 +15,7 @@ import (
 // and tenant onboarding. The concrete *PostgresStore satisfies it.
 type OperatorAuth interface {
 	FindOperatorByEmail(tenantID uuid.UUID, email string) (domain.Operator, string, error)
-	FindOperatorByIdentifier(tenantID uuid.UUID, identifier string) (domain.Operator, string, string, error)
+	FindOperatorByIdentifier(tenantID uuid.UUID, identifier string) (op domain.Operator, plainTotpSecret string, passwordHash string, err error)
 	GetOperatorByID(tenantID, operatorID uuid.UUID) (domain.Operator, error)
 	GetOperatorByIDWithSecret(tenantID, operatorID uuid.UUID) (domain.Operator, string, error)
 	ListOperators(tenantID uuid.UUID) ([]domain.Operator, error)
@@ -42,18 +42,17 @@ type OperatorAuth interface {
 	RequestRecovery(tenantID uuid.UUID, identifier string) (string, error)
 	ValidateRecoveryToken(rawToken string) (domain.RecoveryToken, domain.Operator, error)
 	GetTenantSetupStatus(tenantID uuid.UUID) (domain.TenantSetupStatus, error)
-	UpdateTenantSetup(tenantID uuid.UUID, setupStep int, orgDetails map[string]any) (domain.TenantSetupStatus, error)
+	UpdateTenantSetup(tenantID uuid.UUID, name string, setupStep int, orgDetails map[string]any) (domain.TenantSetupStatus, error)
 	CompleteTenantSetup(tenantID uuid.UUID) error
 	GetTenantByID(tenantID uuid.UUID) (domain.Tenant, error)
+	FindTenantBySlug(slug string) (domain.Tenant, error)
 	TrackInvitationDelivery(invitationID uuid.UUID, status, messageID, errorMessage string) error
 	LogRecoveryAudit(tenantID uuid.UUID, operatorID *uuid.UUID, action, ip, userAgent string, details map[string]any) error
 }
 
 // CreateOperator inserts a new operator with a bcrypt-hashed password.
 func (p *PostgresStore) CreateOperator(tenantID uuid.UUID, email, name, role, password string) (domain.Operator, error) {
-	if role == "" {
-		role = "operator"
-	}
+	role = domain.NormalizeRole(role)
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return domain.Operator{}, err

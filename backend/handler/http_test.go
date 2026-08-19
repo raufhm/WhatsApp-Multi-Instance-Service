@@ -39,14 +39,23 @@ func (f *apiRepoStub) ListAccounts(uuid.UUID) ([]domain.WhatsAppAccount, error) 
 	f.calls++
 	return []domain.WhatsAppAccount{}, nil
 }
-func (f *apiRepoStub) ListContacts(uuid.UUID, int, int) ([]domain.Contact, error) {
-	return []domain.Contact{}, nil
+func (f *apiRepoStub) GetAccount(uuid.UUID, uuid.UUID) (domain.WhatsAppAccount, error) {
+	return domain.WhatsAppAccount{}, nil
+}
+func (f *apiRepoStub) ListContacts(uuid.UUID, int, int, string) ([]domain.Contact, int, error) {
+	return []domain.Contact{}, 0, nil
 }
 func (f *apiRepoStub) GetContact(uuid.UUID, uuid.UUID) (domain.Contact, error) {
 	return domain.Contact{}, nil
 }
 func (f *apiRepoStub) ListConversations(uuid.UUID, string, int, int) ([]domain.Conversation, error) {
 	return []domain.Conversation{}, nil
+}
+func (f *apiRepoStub) GetConversation(uuid.UUID, uuid.UUID) (domain.Conversation, error) {
+	return domain.Conversation{}, nil
+}
+func (f *apiRepoStub) ListConversationSummaries(uuid.UUID, string, int, int) ([]domain.ConversationSummary, error) {
+	return []domain.ConversationSummary{}, nil
 }
 func (f *apiRepoStub) GetConversationTimeline(uuid.UUID, uuid.UUID, int, int) ([]domain.ConversationMessage, error) {
 	return nil, nil
@@ -104,6 +113,78 @@ func (f *apiRepoStub) RecordMediaObject(context.Context, uuid.UUID, string, stri
 }
 func (f *apiRepoStub) GetMediaObject(context.Context, uuid.UUID, string) (domain.MediaObject, error) {
 	return domain.MediaObject{}, nil
+}
+func (f *apiRepoStub) UpdateContact(uuid.UUID, uuid.UUID, domain.ContactUpdateInput) (domain.Contact, error) {
+	return domain.Contact{}, nil
+}
+func (f *apiRepoStub) ListContactConversations(uuid.UUID, uuid.UUID, int, int) ([]domain.Conversation, error) {
+	return nil, nil
+}
+func (f *apiRepoStub) ListContactFieldDefinitions(uuid.UUID) ([]domain.ContactFieldDefinition, error) {
+	return nil, nil
+}
+func (f *apiRepoStub) GetContactFieldDefinition(uuid.UUID, uuid.UUID) (domain.ContactFieldDefinition, error) {
+	return domain.ContactFieldDefinition{}, nil
+}
+func (f *apiRepoStub) CreateContactFieldDefinition(uuid.UUID, string, string, string, []string, bool, int) (domain.ContactFieldDefinition, error) {
+	return domain.ContactFieldDefinition{}, nil
+}
+func (f *apiRepoStub) UpdateContactFieldDefinition(uuid.UUID, uuid.UUID, string, string, []string, bool, int, bool) (domain.ContactFieldDefinition, error) {
+	return domain.ContactFieldDefinition{}, nil
+}
+func (f *apiRepoStub) DeleteContactFieldDefinition(uuid.UUID, uuid.UUID) error {
+	return nil
+}
+func (f *apiRepoStub) ListPipelines(uuid.UUID, *bool) ([]domain.Pipeline, error) {
+	return nil, nil
+}
+func (f *apiRepoStub) GetPipeline(uuid.UUID, uuid.UUID) (domain.Pipeline, error) {
+	return domain.Pipeline{}, nil
+}
+func (f *apiRepoStub) GetDefaultPipeline(uuid.UUID) (domain.Pipeline, error) {
+	return domain.Pipeline{}, nil
+}
+func (f *apiRepoStub) CreatePipeline(uuid.UUID, string, string, bool) (domain.Pipeline, error) {
+	return domain.Pipeline{}, nil
+}
+func (f *apiRepoStub) UpdatePipeline(uuid.UUID, uuid.UUID, *string, *string, *bool, *bool) (domain.Pipeline, error) {
+	return domain.Pipeline{}, nil
+}
+func (f *apiRepoStub) DeletePipeline(uuid.UUID, uuid.UUID) error {
+	return nil
+}
+func (f *apiRepoStub) ListDealStages(uuid.UUID, *uuid.UUID, *bool) ([]domain.DealStage, error) {
+	return nil, nil
+}
+func (f *apiRepoStub) GetDealStage(uuid.UUID, uuid.UUID) (domain.DealStage, error) {
+	return domain.DealStage{}, nil
+}
+func (f *apiRepoStub) CreateDealStage(uuid.UUID, *uuid.UUID, string, string, string, string, int, bool, bool) (domain.DealStage, error) {
+	return domain.DealStage{}, nil
+}
+func (f *apiRepoStub) UpdateDealStage(uuid.UUID, uuid.UUID, *uuid.UUID, *string, *string, *string, *int, *bool, *bool, *bool) (domain.DealStage, error) {
+	return domain.DealStage{}, nil
+}
+func (f *apiRepoStub) DeleteDealStage(uuid.UUID, uuid.UUID) error {
+	return nil
+}
+func (f *apiRepoStub) MoveContactToStage(uuid.UUID, uuid.UUID, string, *uuid.UUID, string, uuid.UUID) (domain.DealStageTransition, error) {
+	return domain.DealStageTransition{}, nil
+}
+func (f *apiRepoStub) ListDealStageHistory(uuid.UUID, uuid.UUID, int, int) ([]domain.DealStageTransition, error) {
+	return nil, nil
+}
+
+func (f *apiRepoStub) GetSubscription(uuid.UUID) (domain.Subscription, error) {
+	return domain.Subscription{}, nil
+}
+
+func (f *apiRepoStub) GetQuota(uuid.UUID) (domain.Quota, error) {
+	return domain.Quota{}, nil
+}
+
+func (f *apiRepoStub) IncrementQuota(uuid.UUID) error {
+	return nil
 }
 
 // acknowledgeStub captures acknowledge call arguments.
@@ -241,8 +322,8 @@ type contactRepoStub struct {
 	activity domain.Activity
 }
 
-func (f *contactRepoStub) ListContacts(uuid.UUID, int, int) ([]domain.Contact, error) {
-	return []domain.Contact{f.contact}, nil
+func (f *contactRepoStub) ListContacts(uuid.UUID, int, int, string) ([]domain.Contact, int, error) {
+	return []domain.Contact{f.contact}, 1, nil
 }
 func (f *contactRepoStub) GetContact(uuid.UUID, uuid.UUID) (domain.Contact, error) {
 	return f.contact, nil
@@ -272,13 +353,13 @@ func contactStub() *contactRepoStub {
 			},
 		},
 		activity: domain.Activity{
-			ID:        uuid.New(),
-			TenantID:  uuid.New(),
-			Type:      "FOLLOW_UP",
-			Summary:   "Call customer back",
+			ID:         uuid.New(),
+			TenantID:   uuid.New(),
+			Type:       "FOLLOW_UP",
+			Summary:    "Call customer back",
 			NextAction: "phone",
-			Priority:  "HIGH",
-			Status:    domain.ActivityPending,
+			Priority:   "HIGH",
+			Status:     domain.ActivityPending,
 		},
 	}
 }
@@ -294,20 +375,23 @@ func TestContactListSerializesDisplayFields(t *testing.T) {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 
-	var payload []struct {
-		Name   string   `json:"name"`
-		Number string   `json:"number"`
-		Email  string   `json:"email"`
-		Tags   []string `json:"tags"`
-		ID     string   `json:"id"`
+	var payload struct {
+		Items []struct {
+			Name   string   `json:"name"`
+			Number string   `json:"number"`
+			Email  string   `json:"email"`
+			Tags   []string `json:"tags"`
+			ID     string   `json:"id"`
+		} `json:"items"`
+		Total int `json:"total"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(payload) != 1 {
-		t.Fatalf("expected 1 contact, got %d", len(payload))
+	if len(payload.Items) != 1 {
+		t.Fatalf("expected 1 contact, got %d", len(payload.Items))
 	}
-	c := payload[0]
+	c := payload.Items[0]
 	if c.Name != "Acme Customer" {
 		t.Errorf("name=%q", c.Name)
 	}
@@ -431,6 +515,66 @@ func TestAPIConversationNotFound(t *testing.T) {
 	}
 }
 
+// summaryStub returns an enriched conversation summary to prove the list
+// payload carries contact identity and last-message preview.
+type summaryStub struct {
+	apiRepoStub
+	items []domain.ConversationSummary
+}
+
+func (f *summaryStub) ListConversationSummaries(uuid.UUID, string, int, int) ([]domain.ConversationSummary, error) {
+	return f.items, nil
+}
+
+func TestAPIListConversationSummariesEnriched(t *testing.T) {
+	contactID := uuid.New()
+	summary := domain.ConversationSummary{
+		Conversation: domain.Conversation{
+			ID:             uuid.New(),
+			TenantID:       uuid.New(),
+			ContactID:      contactID,
+			TicketNumber:   42,
+			Status:         domain.ConversationOpen,
+			Assignee:       "Ada",
+			LastActivityAt: time.Now(),
+		},
+		ContactName:   "Ada Lovelace",
+		ContactNumber: "15551234567",
+		LastMessage:   "What is the status of my order?",
+		LastActor:     domain.ActorContact,
+	}
+	f := &summaryStub{apiRepoStub: apiRepoStub{tenant: uuid.New()}, items: []domain.ConversationSummary{summary}}
+	s := &Server{Platform: f}
+	r := httptest.NewRequest("GET", "/api/v1/conversations?status=OPEN", nil)
+	r.Header.Set("X-API-Key", "good")
+	w := httptest.NewRecorder()
+	s.APIHandler(w, r)
+	if w.Code != 200 {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	var body []map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if len(body) != 1 {
+		t.Fatalf("expected 1 summary, got %d", len(body))
+	}
+	got := body[0]
+	for k, want := range map[string]any{
+		"ticket_number":        float64(42),
+		"status":               "OPEN",
+		"assignee":             "Ada",
+		"contact_name":         "Ada Lovelace",
+		"contact_number":       "15551234567",
+		"last_message_preview": "What is the status of my order?",
+		"last_message_actor":   "CONTACT",
+	} {
+		if got[k] != want {
+			t.Errorf("field %q = %v, want %v", k, got[k], want)
+		}
+	}
+}
+
 // --- Activities ---
 
 func TestAPIListActivities(t *testing.T) {
@@ -539,6 +683,10 @@ func (s *sessionAuthStub) GetSessionByID(id uuid.UUID) (domain.Session, error) {
 		return sess, nil
 	}
 	return domain.Session{}, errors.New("session not found")
+}
+
+func (s *sessionAuthStub) GetOperatorByID(tenantID, operatorID uuid.UUID) (domain.Operator, error) {
+	return domain.Operator{ID: operatorID, TenantID: tenantID, Name: "Test Operator"}, nil
 }
 
 func TestAPISessionAuthentication(t *testing.T) {

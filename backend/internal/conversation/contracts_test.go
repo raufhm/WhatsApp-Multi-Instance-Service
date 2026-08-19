@@ -17,6 +17,28 @@ func TestNormalizeAddress(t *testing.T) {
 	}
 }
 
+func TestNormalizeAddressWithServerGroupVsPersonal(t *testing.T) {
+	// A bare numeric ID must normalize to different addresses depending on the
+	// server parameter so that group and personal contacts remain distinct.
+	personal, err := NormalizeAddressWithServer("120363", "s.whatsapp.net")
+	if err != nil {
+		t.Fatalf("personal: %v", err)
+	}
+	group, err := NormalizeAddressWithServer("120363", "g.us")
+	if err != nil {
+		t.Fatalf("group: %v", err)
+	}
+	if personal == group {
+		t.Errorf("personal and group addresses must not collide: both %q", personal)
+	}
+	if personal != "120363@s.whatsapp.net" {
+		t.Errorf("personal = %q, want 120363@s.whatsapp.net", personal)
+	}
+	if group != "120363@g.us" {
+		t.Errorf("group = %q, want 120363@g.us", group)
+	}
+}
+
 func TestNormalizeAddressRejectsEmptyAndMalformed(t *testing.T) {
 	for _, input := range []string{"", "@", "@user", "user@"} {
 		if _, err := NormalizeAddress(input); err == nil {

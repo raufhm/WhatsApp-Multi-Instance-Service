@@ -14,13 +14,13 @@ import (
 )
 
 type signupTenantRequest struct {
-	TenantName    string `json:"tenant_name"`
-	Name          string `json:"name"`
-	AdminName     string `json:"admin_name"`
-	AdminEmail    string `json:"admin_email"`
-	Email         string `json:"email"`
-	AdminWhatsapp string `json:"admin_whatsapp"`
-	Whatsapp      string `json:"whatsapp"`
+	TenantName     string `json:"tenant_name"`
+	Name           string `json:"name"`
+	AdminName      string `json:"admin_name"`
+	AdminEmail     string `json:"admin_email"`
+	Email          string `json:"email"`
+	AdminWhatsapp  string `json:"admin_whatsapp"`
+	Whatsapp       string `json:"whatsapp"`
 	WhatsappNumber string `json:"whatsapp_number"`
 }
 
@@ -209,12 +209,21 @@ func (d *DashboardHandler) handleTOTPVerifySetup(w http.ResponseWriter, r *http.
 		MaxAge:   int((8 * time.Hour).Seconds()),
 	})
 
+	var tenantName, tenantSlug string
+	if t, err := d.Auth.GetTenantByID(op.TenantID); err == nil {
+		tenantName = t.Name
+		tenantSlug = t.Slug
+	}
+
 	WriteJSON(w, http.StatusOK, map[string]any{
 		"status":       "success",
 		"verified":     true,
 		"backup_codes": backupCodes,
 		"user":         op,
 		"session_id":   session.ID,
+		"tenant_id":    op.TenantID,
+		"tenant_slug":  tenantSlug,
+		"tenant_name":  tenantName,
 	})
 }
 
@@ -238,6 +247,7 @@ func (d *DashboardHandler) handleAcceptInvitationInfo(w http.ResponseWriter, r *
 		"invitation":       inv,
 		"invitation_token": token,
 		"tenant_name":      tenant.Name,
+		"tenant_slug":      tenant.Slug,
 		"tenant_id":        tenant.ID,
 		"role":             inv.Role,
 		"whatsapp_number":  inv.WhatsappNumber,
@@ -304,6 +314,7 @@ func (d *DashboardHandler) handleSignupOperator(w http.ResponseWriter, r *http.R
 
 type backupCodeLoginRequest struct {
 	TenantID       string `json:"tenant_id"`
+	TenantSlug     string `json:"tenant_slug"`
 	Identifier     string `json:"identifier"`
 	Email          string `json:"email"`
 	WhatsappNumber string `json:"whatsapp_number"`
@@ -318,13 +329,13 @@ func (d *DashboardHandler) handleBackupCodeLogin(w http.ResponseWriter, r *http.
 		return
 	}
 
-	tenantStr := req.TenantID
-	if tenantStr == "" {
-		tenantStr = r.Header.Get("X-Tenant")
-	}
-	tenantID, err := uuid.Parse(tenantStr)
+	tenant, err := d.resolveTenant(r, req.TenantID, req.TenantSlug)
 	if err != nil {
-		writeAPIError(w, 400, "TENANT_REQUIRED", "tenant_id is required")
+		if errors.Is(err, errTenantRequired) {
+			writeAPIError(w, 400, "TENANT_REQUIRED", "tenant ID or company name is required")
+			return
+		}
+		writeAPIError(w, 401, "INVALID_CREDENTIALS", "invalid identifier or backup code")
 		return
 	}
 
@@ -346,7 +357,7 @@ func (d *DashboardHandler) handleBackupCodeLogin(w http.ResponseWriter, r *http.
 		return
 	}
 
-	op, session, remaining, err := d.Auth.VerifyBackupCodeAndLogin(tenantID, identifier, code)
+	op, session, remaining, err := d.Auth.VerifyBackupCodeAndLogin(tenant.ID, identifier, code)
 	if err != nil {
 		if errors.Is(err, storage.ErrInvalidBackupCode) || errors.Is(err, storage.ErrOperatorNotFound) {
 			writeAPIError(w, 401, "INVALID_CREDENTIALS", "invalid identifier or backup code")
@@ -369,12 +380,16 @@ func (d *DashboardHandler) handleBackupCodeLogin(w http.ResponseWriter, r *http.
 	WriteJSON(w, http.StatusOK, map[string]any{
 		"user":                   op,
 		"session_id":             session.ID,
+		"tenant_id":              tenant.ID,
+		"tenant_slug":            tenant.Slug,
+		"tenant_name":            tenant.Name,
 		"backup_codes_remaining": remaining,
 	})
 }
 
 type recoveryRequest struct {
 	TenantID       string `json:"tenant_id"`
+	TenantSlug     string `json:"tenant_slug"`
 	Identifier     string `json:"identifier"`
 	Email          string `json:"email"`
 	WhatsappNumber string `json:"whatsapp_number"`
@@ -387,13 +402,17 @@ func (d *DashboardHandler) handleRecoveryRequest(w http.ResponseWriter, r *http.
 		return
 	}
 
-	tenantStr := req.TenantID
-	if tenantStr == "" {
-		tenantStr = r.Header.Get("X-Tenant")
-	}
-	tenantID, err := uuid.Parse(tenantStr)
+	tenant, err := d.resolveTenant(r, req.TenantID, req.TenantSlug)
 	if err != nil {
-		writeAPIError(w, 400, "TENANT_REQUIRED", "tenant_id is required")
+		if errors.Is(err, errTenantRequired) {
+			writeAPIError(w, 400, "TENANT_REQUIRED", "tenant ID or company name is required")
+			return
+		}
+		// Return generic message to prevent user/tenant enumeration
+		WriteJSON(w, http.StatusOK, map[string]any{
+			"status":  "recovery_initiated",
+			"message": "If the account exists, recovery instructions have been sent",
+		})
 		return
 	}
 
@@ -410,7 +429,7 @@ func (d *DashboardHandler) handleRecoveryRequest(w http.ResponseWriter, r *http.
 		return
 	}
 
-	token, err := d.Auth.RequestRecovery(tenantID, identifier)
+	token, err := d.Auth.RequestRecovery(tenant.ID, identifier)
 	if err != nil {
 		if errors.Is(err, storage.ErrOperatorNotFound) {
 			// Return generic message to prevent user enumeration
@@ -567,19 +586,23 @@ func (d *DashboardHandler) handleCreateWhatsAppInvitation(w http.ResponseWriter,
 		return
 	}
 
-	number := strings.TrimSpace(req.WhatsappNumber)
-	if number == "" {
-		number = strings.TrimSpace(req.Whatsapp)
+	rawNumber := strings.TrimSpace(req.WhatsappNumber)
+	if rawNumber == "" {
+		rawNumber = strings.TrimSpace(req.Whatsapp)
 	}
-	if number == "" {
+	if rawNumber == "" {
 		writeAPIError(w, 400, "VALIDATION_ERROR", "whatsapp_number is required")
 		return
 	}
 
-	role := strings.TrimSpace(req.Role)
-	if role == "" {
-		role = "operator"
+	cleanDigits := whatsapp.SanitizePhoneNumber(rawNumber)
+	if cleanDigits == "" {
+		writeAPIError(w, 400, "VALIDATION_ERROR", "invalid whatsapp_number")
+		return
 	}
+	number := "+" + cleanDigits
+
+	role := domain.NormalizeRole(req.Role)
 
 	inv, token, err := d.Auth.CreateInvitation(tenantID, &callerID, number, "whatsapp", role, number, "")
 	if err != nil {
@@ -641,10 +664,7 @@ func (d *DashboardHandler) handleCreateEmailInvitation(w http.ResponseWriter, r 
 		return
 	}
 
-	role := strings.TrimSpace(req.Role)
-	if role == "" {
-		role = "operator"
-	}
+	role := domain.NormalizeRole(req.Role)
 
 	inv, token, err := d.Auth.CreateInvitation(tenantID, &callerID, email, "email", role, "", email)
 	if err != nil {
@@ -700,6 +720,7 @@ func (d *DashboardHandler) handleGetTenantSetupStatus(w http.ResponseWriter, r *
 }
 
 type updateTenantSetupRequest struct {
+	TenantName string         `json:"tenant_name"`
 	SetupStep  int            `json:"setup_step"`
 	OrgDetails map[string]any `json:"org_details"`
 }
@@ -711,7 +732,7 @@ func (d *DashboardHandler) handleUpdateTenantSetup(w http.ResponseWriter, r *htt
 		return
 	}
 
-	status, err := d.Auth.UpdateTenantSetup(tenantID, req.SetupStep, req.OrgDetails)
+	status, err := d.Auth.UpdateTenantSetup(tenantID, req.TenantName, req.SetupStep, req.OrgDetails)
 	if err != nil {
 		writeAPIError(w, 500, "INTERNAL_ERROR", err.Error())
 		return

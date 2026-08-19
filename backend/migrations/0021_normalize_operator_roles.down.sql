@@ -1,0 +1,1 @@
+-- No-op: Roles remain lowercase normalized.

@@ -13,8 +13,18 @@ var ErrInvalidAddress = errors.New("invalid WhatsApp address")
 
 // NormalizeAddress returns a stable address for tenant-local identity matching.
 // Device suffixes are removed while group addresses remain distinct addresses.
+// Personal (default-server) identifiers that omit a domain are normalized to
+// @s.whatsapp.net.
 func NormalizeAddress(address string) (string, error) {
+	return NormalizeAddressWithServer(address, "s.whatsapp.net")
+}
+
+// NormalizeAddressWithServer normalizes a WhatsApp identifier using the supplied
+// server domain. Use this for group addresses (g.us) so that normalized
+// identity matching does not collapse a group ID into a personal number.
+func NormalizeAddressWithServer(address string, server string) (string, error) {
 	address = strings.ToLower(strings.TrimSpace(address))
+	address = strings.TrimPrefix(address, "+")
 	if address == "" {
 		return "", ErrInvalidAddress
 	}
@@ -27,7 +37,7 @@ func NormalizeAddress(address string) (string, error) {
 		}
 	}
 	if !strings.Contains(address, "@") {
-		address += "@s.whatsapp.net"
+		address += "@" + server
 	}
 	parts := strings.Split(address, "@")
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {

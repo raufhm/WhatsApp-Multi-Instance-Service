@@ -8,7 +8,7 @@ export const Label = forwardRef<HTMLLabelElement, LabelProps>(
     return (
       <label
         ref={ref}
-        className={twMerge('block text-sm font-medium text-gray-700 mb-1', className)}
+        className={twMerge('block text-[13px] font-medium text-gray-600 mb-1', className)}
         {...props}
       />
     )

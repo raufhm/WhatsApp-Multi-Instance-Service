@@ -11,7 +11,7 @@ import {
 
 describe('qrCode and TOTP URI builder', () => {
   it('has standard RFC 6238 constants matching backend', () => {
-    expect(TOTP_ISSUER).toBe('WhatsApp Multi-Instance Service')
+    expect(TOTP_ISSUER).toBe('whops')
     expect(TOTP_ALGORITHM).toBe('SHA1')
     expect(TOTP_DIGITS).toBe(6)
     expect(TOTP_PERIOD).toBe(30)
@@ -21,7 +21,7 @@ describe('qrCode and TOTP URI builder', () => {
     const account = 'user@example.com'
     const secret = 'JBSWY3DPEHPK3PXP'
     const expected =
-      'otpauth://totp/WhatsApp%20Multi-Instance%20Service:user@example.com?algorithm=SHA1&digits=6&issuer=WhatsApp+Multi-Instance+Service&period=30&secret=JBSWY3DPEHPK3PXP'
+      'otpauth://totp/whops:user@example.com?algorithm=SHA1&digits=6&issuer=whops&period=30&secret=JBSWY3DPEHPK3PXP'
 
     const actual = buildOtpauthUrl(account, secret)
     expect(actual).toBe(expected)

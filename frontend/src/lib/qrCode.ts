@@ -132,7 +132,7 @@ export function generateQrSvg(data: string, size = 200, margin = 4): string {
   return svg
 }
 
-export const TOTP_ISSUER = 'WhatsApp Multi-Instance Service'
+export const TOTP_ISSUER = 'whops'
 export const TOTP_PERIOD = 30
 export const TOTP_DIGITS = 6
 export const TOTP_ALGORITHM = 'SHA1'

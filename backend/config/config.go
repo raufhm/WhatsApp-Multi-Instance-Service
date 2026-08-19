@@ -21,7 +21,7 @@ type Config struct {
 	MediaDir string
 	// BOT_SESSION_TIMEOUT — idle session timeout before auto-closure (default: 30m).
 	BotSessionTimeout time.Duration
-	// BOT_FALLBACK_REPLY — message sent when no rule matches (default: generic reply).
+	// BOT_FALLBACK_REPLY — message sent when no rule matches (default: empty, no reply).
 	BotFallbackReply string
 	// BOT_RULES_VERSION — version tag written to bot_sessions for audit (default: default).
 	BotRulesVersion string
@@ -48,7 +48,7 @@ func LoadConfig() (Config, error) {
 	viper.SetDefault("PORT", "8080")
 	viper.SetDefault("MEDIA_DIR", "./media")
 	viper.SetDefault("BOT_SESSION_TIMEOUT", "30m")
-	viper.SetDefault("BOT_FALLBACK_REPLY", "Thanks for your message. A team member will follow up shortly.")
+	viper.SetDefault("BOT_FALLBACK_REPLY", "")
 	viper.SetDefault("BOT_RULES_VERSION", "default")
 	viper.SetDefault("LOG_LEVEL", "INFO")
 	viper.SetDefault("UPLOAD_WORKER_ENABLED", "true")

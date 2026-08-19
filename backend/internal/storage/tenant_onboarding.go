@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,14 +15,27 @@ import (
 	"github.com/raufhm/whatsapp-testing/internal/totp"
 )
 
+var slugRegex = regexp.MustCompile(`[^a-z0-9]+`)
+
+// NormalizeSlug converts a tenant name or input string into a URL-friendly slug.
+func NormalizeSlug(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = slugRegex.ReplaceAllString(s, "-")
+	s = strings.Trim(s, "-")
+	if s == "" {
+		s = "tenant"
+	}
+	return s
+}
+
 var (
-	ErrTokenNotFound       = errors.New("token not found or expired")
-	ErrInvitationNotFound  = errors.New("invitation not found or expired")
-	ErrInvalidBackupCode   = errors.New("invalid backup code")
-	ErrUnauthorizedAdmin   = errors.New("admin permission required")
-	ErrTenantNotFound      = errors.New("tenant not found")
-	ErrInvalidTOTPCode     = errors.New("invalid totp code")
-	ErrDuplicateWhatsapp   = errors.New("whatsapp number already registered")
+	ErrTokenNotFound      = errors.New("token not found or expired")
+	ErrInvitationNotFound = errors.New("invitation not found or expired")
+	ErrInvalidBackupCode  = errors.New("invalid backup code")
+	ErrUnauthorizedAdmin  = errors.New("admin permission required")
+	ErrTenantNotFound     = errors.New("tenant not found")
+	ErrInvalidTOTPCode    = errors.New("invalid totp code")
+	ErrDuplicateWhatsapp  = errors.New("whatsapp number already registered")
 )
 
 // isUniqueViolation reports whether err is a Postgres unique constraint
@@ -68,6 +83,7 @@ func scanOperatorRow(scanner interface {
 }
 
 // FindOperatorByIdentifier finds an operator by email OR whatsapp_number in the tenant.
+// It returns the operator, decrypted plaintext TOTP secret, password hash, and an error.
 func (p *PostgresStore) FindOperatorByIdentifier(tenantID uuid.UUID, identifier string) (domain.Operator, string, string, error) {
 	row := p.db.QueryRow(
 		`SELECT id, tenant_id, email, whatsapp_number, name, password_hash, role, is_active,
@@ -77,14 +93,21 @@ func (p *PostgresStore) FindOperatorByIdentifier(tenantID uuid.UUID, identifier 
 		 WHERE tenant_id = $1 AND (email = $2 OR whatsapp_number = $2)`,
 		tenantID, identifier,
 	)
-	op, passHash, totpSecret, err := scanOperatorRow(row)
+	op, passHash, encryptedSecret, err := scanOperatorRow(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.Operator{}, "", "", ErrOperatorNotFound
 		}
 		return domain.Operator{}, "", "", err
 	}
-	return op, passHash, totpSecret, nil
+	var plainSecret string
+	if encryptedSecret != "" {
+		plainSecret, err = totp.DecryptSecret(encryptedSecret)
+		if err != nil {
+			return domain.Operator{}, "", "", err
+		}
+	}
+	return op, plainSecret, passHash, nil
 }
 
 // FindOperatorByEmail returns an operator by tenant + email.
@@ -169,14 +192,30 @@ func (p *PostgresStore) SignupTenant(tenantName, adminName, adminEmail, adminWha
 	}
 	defer tx.Rollback()
 
+	baseSlug := NormalizeSlug(tenantName)
+	slug := baseSlug
+	suffix := 1
+	for {
+		var count int
+		err := tx.QueryRow(`SELECT COUNT(*) FROM tenants WHERE slug = $1`, slug).Scan(&count)
+		if err != nil {
+			return domain.Tenant{}, domain.Operator{}, "", fmt.Errorf("check slug uniqueness: %w", err)
+		}
+		if count == 0 {
+			break
+		}
+		suffix++
+		slug = fmt.Sprintf("%s-%d", baseSlug, suffix)
+	}
+
 	var tenant domain.Tenant
 	var orgDetailsJSON []byte
 	err = tx.QueryRow(
-		`INSERT INTO tenants (name, setup_step, is_setup_complete, org_details)
-		 VALUES ($1, 0, false, '{}'::jsonb)
-		 RETURNING id, name, setup_step, is_setup_complete, org_details, created_at, updated_at`,
-		tenantName,
-	).Scan(&tenant.ID, &tenant.Name, &tenant.SetupStep, &tenant.IsSetupComplete, &orgDetailsJSON, &tenant.CreatedAt, &tenant.UpdatedAt)
+		`INSERT INTO tenants (name, slug, setup_step, is_setup_complete, org_details)
+		 VALUES ($1, $2, 0, false, '{}'::jsonb)
+		 RETURNING id, name, slug, setup_step, is_setup_complete, org_details, created_at, updated_at`,
+		tenantName, slug,
+	).Scan(&tenant.ID, &tenant.Name, &tenant.Slug, &tenant.SetupStep, &tenant.IsSetupComplete, &orgDetailsJSON, &tenant.CreatedAt, &tenant.UpdatedAt)
 	if err != nil {
 		return domain.Tenant{}, domain.Operator{}, "", fmt.Errorf("insert tenant: %w", err)
 	}
@@ -272,9 +311,9 @@ func (p *PostgresStore) VerifyEmailToken(rawToken string) (domain.Tenant, domain
 	var tenant domain.Tenant
 	var orgDetailsJSON []byte
 	err = tx.QueryRow(
-		`SELECT id, name, setup_step, is_setup_complete, org_details, created_at, updated_at
+		`SELECT id, name, slug, setup_step, is_setup_complete, org_details, created_at, updated_at
 		 FROM tenants WHERE id = $1`, tenantID,
-	).Scan(&tenant.ID, &tenant.Name, &tenant.SetupStep, &tenant.IsSetupComplete, &orgDetailsJSON, &tenant.CreatedAt, &tenant.UpdatedAt)
+	).Scan(&tenant.ID, &tenant.Name, &tenant.Slug, &tenant.SetupStep, &tenant.IsSetupComplete, &orgDetailsJSON, &tenant.CreatedAt, &tenant.UpdatedAt)
 	if err != nil {
 		return domain.Tenant{}, domain.Operator{}, "", err
 	}
@@ -332,9 +371,9 @@ func (p *PostgresStore) GetTOTPSetupInfo(rawSetupToken string) (domain.Operator,
 	var tenant domain.Tenant
 	var orgDetailsJSON []byte
 	err = p.db.QueryRow(
-		`SELECT id, name, setup_step, is_setup_complete, org_details, created_at, updated_at
+		`SELECT id, name, slug, setup_step, is_setup_complete, org_details, created_at, updated_at
 		 FROM tenants WHERE id = $1`, op.TenantID,
-	).Scan(&tenant.ID, &tenant.Name, &tenant.SetupStep, &tenant.IsSetupComplete, &orgDetailsJSON, &tenant.CreatedAt, &tenant.UpdatedAt)
+	).Scan(&tenant.ID, &tenant.Name, &tenant.Slug, &tenant.SetupStep, &tenant.IsSetupComplete, &orgDetailsJSON, &tenant.CreatedAt, &tenant.UpdatedAt)
 	if err != nil {
 		return domain.Operator{}, domain.Tenant{}, "", err
 	}
@@ -487,9 +526,7 @@ func (p *PostgresStore) VerifyTOTPSetup(rawSetupToken, code string) (domain.Oper
 
 // CreateInvitation creates a new invitation and returns the raw token.
 func (p *PostgresStore) CreateInvitation(tenantID uuid.UUID, createdBy *uuid.UUID, recipient, channel, role, whatsappNumber, email string) (domain.Invitation, string, error) {
-	if role == "" {
-		role = "operator"
-	}
+	role = domain.NormalizeRole(role)
 	if channel == "" {
 		channel = "whatsapp"
 	}
@@ -574,9 +611,9 @@ func (p *PostgresStore) GetInvitationByToken(rawToken string) (domain.Invitation
 	var tenant domain.Tenant
 	var orgDetailsJSON []byte
 	err = p.db.QueryRow(
-		`SELECT id, name, setup_step, is_setup_complete, org_details, created_at, updated_at
+		`SELECT id, name, slug, setup_step, is_setup_complete, org_details, created_at, updated_at
 		 FROM tenants WHERE id = $1`, inv.TenantID,
-	).Scan(&tenant.ID, &tenant.Name, &tenant.SetupStep, &tenant.IsSetupComplete, &orgDetailsJSON, &tenant.CreatedAt, &tenant.UpdatedAt)
+	).Scan(&tenant.ID, &tenant.Name, &tenant.Slug, &tenant.SetupStep, &tenant.IsSetupComplete, &orgDetailsJSON, &tenant.CreatedAt, &tenant.UpdatedAt)
 	if err != nil {
 		return domain.Invitation{}, domain.Tenant{}, err
 	}
@@ -641,13 +678,14 @@ func (p *PostgresStore) AcceptInvitationAndSignupOperator(rawToken, name, whatsa
 		return domain.Operator{}, "", err
 	}
 
+	role := domain.NormalizeRole(inv.Role)
 	row := tx.QueryRow(
 		`INSERT INTO operators (tenant_id, name, email, whatsapp_number, role, is_active, totp_secret_encrypted, totp_setup_required)
 		 VALUES ($1, $2, $3, $4, $5, true, $6, true)
 		 RETURNING id, tenant_id, email, whatsapp_number, name, password_hash, role, is_active,
 		           totp_secret_encrypted, totp_verified_at, totp_setup_required, email_verified_at,
 		           last_login_at, created_at, updated_at`,
-		inv.TenantID, name, emailVal, whatsappVal, inv.Role, encryptedSecret,
+		inv.TenantID, name, emailVal, whatsappVal, role, encryptedSecret,
 	)
 	op, _, _, err := scanOperatorRow(row)
 	if err != nil {
@@ -998,9 +1036,9 @@ func (p *PostgresStore) GetTenantSetupStatus(tenantID uuid.UUID) (domain.TenantS
 	var status domain.TenantSetupStatus
 	var orgDetailsJSON []byte
 	err := p.db.QueryRow(
-		`SELECT setup_step, is_setup_complete, org_details FROM tenants WHERE id = $1`,
+		`SELECT name, slug, setup_step, is_setup_complete, org_details FROM tenants WHERE id = $1`,
 		tenantID,
-	).Scan(&status.SetupStep, &status.IsSetupComplete, &orgDetailsJSON)
+	).Scan(&status.TenantName, &status.TenantSlug, &status.SetupStep, &status.IsSetupComplete, &orgDetailsJSON)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.TenantSetupStatus{}, ErrTenantNotFound
@@ -1010,11 +1048,25 @@ func (p *PostgresStore) GetTenantSetupStatus(tenantID uuid.UUID) (domain.TenantS
 	if len(orgDetailsJSON) > 0 {
 		_ = json.Unmarshal(orgDetailsJSON, &status.OrgDetails)
 	}
+	p.enrichTenantSetupStatus(&status, tenantID)
 	return status, nil
 }
 
+func (p *PostgresStore) enrichTenantSetupStatus(status *domain.TenantSetupStatus, tenantID uuid.UUID) {
+	var count int
+	_ = p.db.QueryRow(`SELECT COUNT(*) FROM whatsapp_accounts WHERE tenant_id = $1`, tenantID).Scan(&count)
+	status.HasWhatsappAccount = count > 0
+
+	_ = p.db.QueryRow(`SELECT COUNT(*) FROM operators WHERE tenant_id = $1 AND role != 'admin'`, tenantID).Scan(&count)
+	status.TeamCount = count
+
+	var botVersion int
+	_ = p.db.QueryRow(`SELECT COUNT(*) FROM bot_rule_sets WHERE tenant_id = $1`, tenantID).Scan(&botVersion)
+	status.HasBotRules = botVersion > 0
+}
+
 // UpdateTenantSetup updates the setup step and org details for a tenant.
-func (p *PostgresStore) UpdateTenantSetup(tenantID uuid.UUID, setupStep int, orgDetails map[string]any) (domain.TenantSetupStatus, error) {
+func (p *PostgresStore) UpdateTenantSetup(tenantID uuid.UUID, name string, setupStep int, orgDetails map[string]any) (domain.TenantSetupStatus, error) {
 	orgJSON, err := json.Marshal(orgDetails)
 	if err != nil {
 		return domain.TenantSetupStatus{}, err
@@ -1024,24 +1076,26 @@ func (p *PostgresStore) UpdateTenantSetup(tenantID uuid.UUID, setupStep int, org
 	var orgDetailsJSON []byte
 	err = p.db.QueryRow(
 		`UPDATE tenants
-		 SET setup_step = $1, org_details = $2, updated_at = CURRENT_TIMESTAMP
-		 WHERE id = $3
-		 RETURNING setup_step, is_setup_complete, org_details`,
-		setupStep, orgJSON, tenantID,
-	).Scan(&status.SetupStep, &status.IsSetupComplete, &orgDetailsJSON)
+		 SET name = COALESCE(NULLIF($1, ''), name),
+		     setup_step = $2, org_details = $3, updated_at = CURRENT_TIMESTAMP
+		 WHERE id = $4
+		 RETURNING name, slug, setup_step, is_setup_complete, org_details`,
+		name, setupStep, orgJSON, tenantID,
+	).Scan(&status.TenantName, &status.TenantSlug, &status.SetupStep, &status.IsSetupComplete, &orgDetailsJSON)
 	if err != nil {
 		return domain.TenantSetupStatus{}, err
 	}
 	if len(orgDetailsJSON) > 0 {
 		_ = json.Unmarshal(orgDetailsJSON, &status.OrgDetails)
 	}
+	p.enrichTenantSetupStatus(&status, tenantID)
 	return status, nil
 }
 
 // CompleteTenantSetup marks tenant onboarding as complete.
 func (p *PostgresStore) CompleteTenantSetup(tenantID uuid.UUID) error {
 	res, err := p.db.Exec(
-		`UPDATE tenants SET is_setup_complete = true, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+		`UPDATE tenants SET is_setup_complete = true, setup_step = 4, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
 		tenantID,
 	)
 	if err != nil {
@@ -1070,10 +1124,32 @@ func (p *PostgresStore) GetTenantByID(tenantID uuid.UUID) (domain.Tenant, error)
 	var tenant domain.Tenant
 	var orgDetailsJSON []byte
 	err := p.db.QueryRow(
-		`SELECT id, name, setup_step, is_setup_complete, org_details, created_at, updated_at
+		`SELECT id, name, slug, setup_step, is_setup_complete, org_details, created_at, updated_at
 		 FROM tenants WHERE id = $1`,
 		tenantID,
-	).Scan(&tenant.ID, &tenant.Name, &tenant.SetupStep, &tenant.IsSetupComplete, &orgDetailsJSON, &tenant.CreatedAt, &tenant.UpdatedAt)
+	).Scan(&tenant.ID, &tenant.Name, &tenant.Slug, &tenant.SetupStep, &tenant.IsSetupComplete, &orgDetailsJSON, &tenant.CreatedAt, &tenant.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.Tenant{}, ErrTenantNotFound
+		}
+		return domain.Tenant{}, err
+	}
+	if len(orgDetailsJSON) > 0 {
+		_ = json.Unmarshal(orgDetailsJSON, &tenant.OrgDetails)
+	}
+	return tenant, nil
+}
+
+// FindTenantBySlug returns a tenant by slug (case-insensitive and normalized).
+func (p *PostgresStore) FindTenantBySlug(slug string) (domain.Tenant, error) {
+	cleanSlug := NormalizeSlug(slug)
+	var tenant domain.Tenant
+	var orgDetailsJSON []byte
+	err := p.db.QueryRow(
+		`SELECT id, name, slug, setup_step, is_setup_complete, org_details, created_at, updated_at
+		 FROM tenants WHERE LOWER(slug) = $1`,
+		cleanSlug,
+	).Scan(&tenant.ID, &tenant.Name, &tenant.Slug, &tenant.SetupStep, &tenant.IsSetupComplete, &orgDetailsJSON, &tenant.CreatedAt, &tenant.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.Tenant{}, ErrTenantNotFound

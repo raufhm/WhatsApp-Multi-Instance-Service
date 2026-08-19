@@ -75,7 +75,7 @@ func (p *PostgresStore) ListBotRuleSets(tenantID uuid.UUID) ([]domain.BotRuleSet
 		return nil, err
 	}
 	defer rows.Close()
-	var sets []domain.BotRuleSet
+	sets := []domain.BotRuleSet{}
 	for rows.Next() {
 		var set domain.BotRuleSet
 		if err := scanBotRuleSet(rows, &set); err != nil {

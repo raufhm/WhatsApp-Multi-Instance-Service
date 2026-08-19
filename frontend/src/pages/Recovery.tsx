@@ -5,7 +5,7 @@ import Button from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAuth } from '@/hooks/useAuth'
-import { onboardingApi, TENANT_ID_KEY } from '@/lib/apiClient'
+import { onboardingApi, TENANT_ID_KEY, TENANT_SLUG_KEY } from '@/lib/apiClient'
 import {
   KeyRound,
   ShieldAlert,
@@ -25,7 +25,7 @@ type RecoveryTab = 'BACKUP_CODE' | 'REQUEST_RESET'
 
 export const Recovery: React.FC = () => {
   const [tab, setTab] = useState<RecoveryTab>('BACKUP_CODE')
-  const [tenantId, setTenantId] = useState(() => localStorage.getItem(TENANT_ID_KEY) || '')
+  const [tenantOrCompany, setTenantOrCompany] = useState(() => localStorage.getItem(TENANT_SLUG_KEY) || localStorage.getItem(TENANT_ID_KEY) || '')
   const [identifier, setIdentifier] = useState('')
   const [backupCode, setBackupCode] = useState('')
 
@@ -45,8 +45,8 @@ export const Recovery: React.FC = () => {
     setError(null)
     setIsLoading(true)
 
-    if (!tenantId.trim()) {
-      setError('Tenant ID is required')
+    if (!tenantOrCompany.trim()) {
+      setError('Company or workspace name is required')
       setIsLoading(false)
       return
     }
@@ -62,8 +62,8 @@ export const Recovery: React.FC = () => {
     }
 
     try {
-      await loginWithBackupCode(tenantId.trim(), identifier.trim(), backupCode.trim())
-      navigate({ to: '/' })
+      await loginWithBackupCode(tenantOrCompany.trim(), identifier.trim(), backupCode.trim())
+      navigate({ to: '/inbox' })
     } catch (err: any) {
       setError(err?.message || 'Invalid backup code or tenant identifier.')
     } finally {
@@ -76,8 +76,8 @@ export const Recovery: React.FC = () => {
     setError(null)
     setIsLoading(true)
 
-    if (!tenantId.trim()) {
-      setError('Tenant ID is required')
+    if (!tenantOrCompany.trim()) {
+      setError('Company or workspace name is required')
       setIsLoading(false)
       return
     }
@@ -89,7 +89,8 @@ export const Recovery: React.FC = () => {
 
     try {
       const res = await onboardingApi.requestRecovery({
-        tenant_id: tenantId.trim(),
+        tenant_slug: tenantOrCompany.trim(),
+        tenant_id: tenantOrCompany.trim(),
         identifier: identifier.trim(),
         channel,
       })
@@ -167,22 +168,25 @@ export const Recovery: React.FC = () => {
           {tab === 'BACKUP_CODE' ? (
             <form onSubmit={handleBackupCodeSubmit} className="space-y-4">
               <div>
-                <Label htmlFor="recTenantId">
+                <Label htmlFor="recTenantOrCompany">
                   <span className="flex items-center gap-1.5">
                     <Building2 className="h-4 w-4 text-gray-500" />
-                    Tenant ID *
+                    Company / Workspace Name *
                   </span>
                 </Label>
                 <Input
-                  id="recTenantId"
+                  id="recTenantOrCompany"
                   type="text"
-                  value={tenantId}
-                  onChange={(e) => setTenantId(e.target.value)}
+                  value={tenantOrCompany}
+                  onChange={(e) => setTenantOrCompany(e.target.value)}
                   required
-                  placeholder="e.g. 550e8400-e29b-41d4-a716-446655440000"
-                  className="mt-1 font-mono text-sm"
+                  placeholder="e.g. acme-corp or Acme Corp"
+                  className="mt-1 text-sm"
                   disabled={isLoading}
                 />
+                <p className="text-xs text-gray-500 mt-1">
+                  Enter your organization's company name or workspace slug.
+                </p>
               </div>
 
               <div>
@@ -272,22 +276,25 @@ export const Recovery: React.FC = () => {
           ) : (
             <form onSubmit={handleRequestRecoverySubmit} className="space-y-4">
               <div>
-                <Label htmlFor="reqTenantId">
+                <Label htmlFor="reqTenantOrCompany">
                   <span className="flex items-center gap-1.5">
                     <Building2 className="h-4 w-4 text-gray-500" />
-                    Tenant ID *
+                    Company / Workspace Name *
                   </span>
                 </Label>
                 <Input
-                  id="reqTenantId"
+                  id="reqTenantOrCompany"
                   type="text"
-                  value={tenantId}
-                  onChange={(e) => setTenantId(e.target.value)}
+                  value={tenantOrCompany}
+                  onChange={(e) => setTenantOrCompany(e.target.value)}
                   required
-                  placeholder="e.g. 550e8400-e29b-41d4-a716-446655440000"
-                  className="mt-1 font-mono text-sm"
+                  placeholder="e.g. acme-corp or Acme Corp"
+                  className="mt-1 text-sm"
                   disabled={isLoading}
                 />
+                <p className="text-xs text-gray-500 mt-1">
+                  Enter your organization's company name or workspace slug.
+                </p>
               </div>
 
               <div>

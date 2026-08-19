@@ -1,0 +1,2 @@
+ALTER TABLE contacts DROP COLUMN IF EXISTS is_group;
+ALTER TABLE conversations DROP COLUMN IF EXISTS is_group;

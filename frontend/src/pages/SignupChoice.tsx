@@ -2,7 +2,7 @@ import React from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { Card } from '@/components/ui/card'
 import Button from '@/components/ui/button'
-import { MessageCircle, Building2, UserPlus, ArrowRight, ShieldCheck } from 'lucide-react'
+import { Building2, UserPlus, ArrowRight, ShieldCheck } from 'lucide-react'
 
 const SignupChoice: React.FC = () => {
   const navigate = useNavigate()
@@ -11,10 +11,10 @@ const SignupChoice: React.FC = () => {
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
         <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-primary-600 text-white shadow-lg mb-4">
-          <MessageCircle className="h-8 w-8" />
+          <span className="text-white text-3xl font-bold">w</span>
         </div>
         <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">
-          Join WhatsApp Multi-Instance
+          Join whops
         </h1>
         <p className="mt-2 text-sm text-gray-600 max-w-sm mx-auto">
           Choose how you would like to get started with our passwordless, TOTP-secured platform.

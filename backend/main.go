@@ -13,8 +13,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
 	cfg "github.com/raufhm/whatsapp-testing/config"
+	"github.com/raufhm/whatsapp-testing/domain"
 	"github.com/raufhm/whatsapp-testing/handler"
 	"github.com/raufhm/whatsapp-testing/internal/bot"
+	"github.com/raufhm/whatsapp-testing/internal/broadcast"
 	"github.com/raufhm/whatsapp-testing/internal/storage"
 	"github.com/raufhm/whatsapp-testing/internal/upload"
 	"github.com/raufhm/whatsapp-testing/whatsapp"
@@ -36,6 +38,11 @@ func main() {
 		log.Fatalf("Store error: %v", err)
 	}
 	pgStore.SetUploadClaimLease(config.UploadLease)
+
+	// SSE fan-out for the dashboard Monitoring live tail. Events recorded by
+	// the store are pushed here and consumed by /dashboard/api/monitoring/stream.
+	monitorBroadcaster := broadcast.NewBroadcaster()
+	pgStore.SetBroadcaster(monitorBroadcaster)
 
 	var mediaStore storage.MediaStore
 	var s3Store *storage.S3Storage
@@ -114,6 +121,7 @@ func main() {
 	}
 	botSender.SetManager(manager)
 	go runSessionTimeoutLoop(pgStore, config.BotSessionTimeout)
+	go runQueueDepthSampler(ctx, pgStore, manager, 10*time.Second)
 	if err := manager.Start(); err != nil {
 		log.Printf("Manager start error: %v", err)
 	}
@@ -147,6 +155,8 @@ func main() {
 		Auth:        pgStore,
 		MediaStore:  mediaStore,
 		S3ObjectURL: config.S3ObjectURL,
+		Monitor:     pgStore,
+		Broadcaster: monitorBroadcaster,
 	}
 	http.Handle("/dashboard/api/accounts", handler.DashboardSessionMiddleware(pgStore, dashboardAPI))
 	http.Handle("/dashboard/api/pairing", handler.DashboardSessionMiddleware(pgStore, dashboardAPI))
@@ -154,9 +164,10 @@ func main() {
 	http.Handle("/dashboard/api/bot-rules", handler.DashboardSessionMiddleware(pgStore, dashboardAPI))
 	http.Handle("/dashboard/api/bot-rules/activate", handler.DashboardSessionMiddleware(pgStore, dashboardAPI))
 	http.Handle("/dashboard/api/upload-jobs", handler.DashboardSessionMiddleware(pgStore, dashboardAPI))
-	http.Handle("/dashboard/api/operators", handler.DashboardSessionMiddleware(pgStore, dashboardAPI))
 	http.Handle("/dashboard/api/media", handler.DashboardSessionMiddleware(pgStore, dashboardAPI))
 	http.Handle("/dashboard/api/media/", handler.DashboardSessionMiddleware(pgStore, dashboardAPI))
+	http.Handle("/dashboard/api/monitoring", handler.DashboardSessionMiddleware(pgStore, dashboardAPI))
+	http.Handle("/dashboard/api/monitoring/", handler.DashboardSessionMiddleware(pgStore, dashboardAPI))
 
 	// Redirect root to dashboard.
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -169,7 +180,12 @@ func main() {
 
 	log.Printf("[startup] port=%s bot_timeout=%s bot_rules=%s log_level=%s upload_worker=%t",
 		config.Port, config.BotSessionTimeout, config.BotRulesVersion, config.LogLevel, uploadManager != nil && config.UploadWorkerEnabled)
-	server := &http.Server{Addr: ":" + config.Port, Handler: nil}
+	server := &http.Server{Addr: ":" + config.Port, Handler: nil,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout: 30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout: 60 * time.Second,
+	}
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -192,6 +208,36 @@ func runSessionTimeoutLoop(store *storage.PostgresStore, timeout time.Duration) 
 	for now := range ticker.C {
 		if err := store.CloseAllTimedOut(timeout, now); err != nil {
 			log.Printf("[timeout-loop] ERROR closing timed-out sessions: %v", err)
+		}
+	}
+}
+
+// runQueueDepthSampler records the outbound queue depth of every running
+// instance every interval so the Monitoring queue-depth chart has history. It
+// is best-effort: failures are logged and the loop continues.
+func runQueueDepthSampler(ctx context.Context, store *storage.PostgresStore, manager *whatsapp.WhatsAppManager, interval time.Duration) {
+	if interval <= 0 {
+		interval = 10 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			for _, inst := range manager.ListInstances() {
+				tenantID, err := store.TenantForHost(inst.HostPhone)
+				if err != nil || tenantID == uuid.Nil {
+					continue
+				}
+				if _, err := store.RecordInstanceEvent(ctx, tenantID, inst.HostPhone, domain.EventQueueDepth, "", map[string]any{
+					"queue_size": inst.QueueSize,
+					"connected":  inst.IsConnected,
+				}); err != nil {
+					log.Printf("[queue-depth] ERROR recording depth for %s: %v", inst.HostPhone, err)
+				}
+			}
 		}
 	}
 }

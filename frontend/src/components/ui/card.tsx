@@ -12,7 +12,7 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
     const baseClasses = 'rounded-lg border bg-white'
 
     const variantClasses = {
-      default: 'border-gray-200',
+      default: 'border-gray-200/80 shadow-sm',
       elevated: 'border-gray-200 shadow-md',
     }
 

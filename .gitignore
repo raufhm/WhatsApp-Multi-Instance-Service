@@ -1,25 +1,29 @@
-# Build artifacts
-/dist/
+# ── Dependencies / build artifacts ──
+node_modules/
 /backend/dist/*
 !/backend/dist/.gitkeep
-/frontend/node_modules/
-node_modules/
+/dist/
 *.exe
 whatsapp-service
 whatsapp-api
 
-# Secrets / env
+# ── Secrets / env ──
 .env
+.env.*
 .env.local
 *.pem
+*.key
+*.secret
+*.private
+secrets/
 
-# Native/cache
+# ── Editor / OS ──
 .DS_Store
 .idea/
 .vscode/
 *.log
 
-# AI agent harnesses
+# ── AI agent harnesses / assistant config ──
 .junie/
 .claude/
 .cursor/
@@ -28,8 +32,30 @@ whatsapp-api
 .aider*
 .cursorrules
 .windsurf/
+.pi/
+.agent/
+agent/
+harness/
+harnesses/
 
-# Storage / sessions (runtime data)
+# ── Project specs / proposals / internal docs ──
+# These contain planning docs, feature specs, and internal-only guidance
+# that should not be exposed in the public repository.
+openspec/
+AGENT.md
+*.agent.md
+*.agent.*
+OPENSPEC*.md
+openspec*.md
+*.openspec.md
+
+# ── Internal scripts (not for public repo) ──
+/internal-scripts/
+/scripts/internal/
+*.internal.sh
+*.internal.*
+
+# ── Runtime data ──
 /storage/
 /sessions/
 /backend/sessions/

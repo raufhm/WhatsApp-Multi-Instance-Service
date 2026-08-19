@@ -7,6 +7,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/google/uuid"
+	"github.com/raufhm/whatsapp-testing/internal/totp"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -55,6 +56,36 @@ func TestFindOperatorByEmail(t *testing.T) {
 	}
 	if op.ID != opID || hash != "hash" {
 		t.Fatalf("unexpected result: op=%+v hash=%q", op, hash)
+	}
+}
+
+func TestFindOperatorByIdentifier(t *testing.T) {
+	store, mock, closeDB := newProjectionStore(t)
+	defer closeDB()
+	tenantID := uuid.New()
+	opID := uuid.New()
+
+	plainSecret := "JBSWY3DPEHPK3PXP"
+	encryptedSecret, err := totp.EncryptSecret(plainSecret)
+	if err != nil {
+		t.Fatalf("EncryptSecret: %v", err)
+	}
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id, tenant_id, email, whatsapp_number, name, password_hash, role, is_active,
+		        totp_secret_encrypted, totp_verified_at, totp_setup_required, email_verified_at,
+		        last_login_at, created_at, updated_at
+		 FROM operators
+		 WHERE tenant_id = $1 AND (email = $2 OR whatsapp_number = $2)`)).
+		WithArgs(tenantID, "op@example.com").
+		WillReturnRows(sqlmock.NewRows(operatorColumns).
+			AddRow(opID, tenantID, "op@example.com", nil, "Op", "bcrypt-hash", "operator", true, encryptedSecret, time.Now(), false, nil, nil, time.Now(), time.Now()))
+
+	op, decryptedSecret, passHash, err := store.FindOperatorByIdentifier(tenantID, "op@example.com")
+	if err != nil {
+		t.Fatalf("FindOperatorByIdentifier: %v", err)
+	}
+	if op.ID != opID || decryptedSecret != plainSecret || passHash != "bcrypt-hash" {
+		t.Fatalf("unexpected result: op=%+v decryptedSecret=%q passHash=%q", op, decryptedSecret, passHash)
 	}
 }
 

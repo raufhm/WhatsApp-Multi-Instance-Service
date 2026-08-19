@@ -13,7 +13,6 @@ import {
   AlertCircle,
   Loader2,
   ArrowRight,
-  MessageCircle,
 } from 'lucide-react'
 
 export const JoinWithCode: React.FC = () => {
@@ -62,7 +61,7 @@ export const JoinWithCode: React.FC = () => {
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
         <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-primary-600 text-white shadow-lg mb-4">
-          <MessageCircle className="h-8 w-8" />
+          <span className="text-white text-3xl font-bold">w</span>
         </div>
         <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">
           Join with Invitation Code

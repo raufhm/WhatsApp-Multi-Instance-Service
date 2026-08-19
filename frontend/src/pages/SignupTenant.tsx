@@ -35,6 +35,7 @@ export const SignupTenant: React.FC = () => {
   const [emailToken, setEmailToken] = useState('')
   const [tempToken, setTempToken] = useState('')
   const [tenantId, setTenantId] = useState('')
+  const [tenantSlug, setTenantSlug] = useState('')
   const [totpData, setTotpData] = useState<TOTPSetupData | null>(null)
   const [totpCode, setTotpCode] = useState('')
   const [backupCodes, setBackupCodes] = useState<string[]>([])
@@ -60,6 +61,10 @@ export const SignupTenant: React.FC = () => {
 
       const tId = res.tenant?.id || res.tenant_id || ''
       setTenantId(tId)
+      const tSlug = res.tenant?.slug || res.tenant_slug || ''
+      if (tSlug) {
+        setTenantSlug(tSlug)
+      }
       const token = res.verification_token || res.temp_token || res.setup_token || ''
       if (token) {
         setEmailToken(token)
@@ -106,6 +111,10 @@ export const SignupTenant: React.FC = () => {
       const setupToken = res.setup_token || res.temp_token || ''
       if (setupToken) {
         setTempToken(setupToken)
+      }
+      const tSlug = res.tenant?.slug || res.tenant_slug || ''
+      if (tSlug) {
+        setTenantSlug(tSlug)
       }
       if (res.totp_setup) {
         setTotpData(res.totp_setup)
@@ -156,7 +165,8 @@ export const SignupTenant: React.FC = () => {
         throw new Error('No user returned by server')
       }
 
-      setSessionUser(currentUser, tenantId)
+      const tSlug = res.tenant_slug || tenantSlug
+      setSessionUser(currentUser, tenantId, tSlug)
       setStep('BACKUP_CODES')
     } catch (err: any) {
       setError(err.response?.data?.error || err.message || 'Invalid authenticator code. Please try again.')
@@ -392,7 +402,7 @@ export const SignupTenant: React.FC = () => {
                 otpauthUrl={totpData.otpauth_url}
                 qrSvg={totpData.qr_code_svg}
                 qrDataUrl={totpData.qr_code_data_url}
-                issuer={orgName || 'WhatsApp Service'}
+                issuer={orgName || 'whops'}
                 accountName={adminEmail}
               />
 
@@ -434,14 +444,31 @@ export const SignupTenant: React.FC = () => {
 
           {/* STEP 3: Backup Codes */}
           {step === 'BACKUP_CODES' && (
-            <BackupCodesDisplay
-              codes={backupCodes}
-              title="Save Your Emergency Backup Codes"
-              description="Keep these 10 one-time codes safe. You will need one if you ever lose your phone or authenticator access."
-              showAcknowledgeCheckbox={true}
-              acknowledgeLabel="Continue to Tenant Setup Wizard"
-              onAcknowledge={handleFinishOnboarding}
-            />
+            <div className="space-y-6">
+              <div className="p-4 rounded-xl bg-primary-50 border border-primary-200 text-sm">
+                <div className="font-semibold text-primary-900 mb-1 flex items-center gap-2">
+                  <Building2 className="h-4 w-4 text-primary-700" />
+                  Company / Workspace Login Identifier
+                </div>
+                <p className="text-primary-800 text-xs mb-2">
+                  When logging in, you and your operators will use this company name or workspace slug:
+                </p>
+                <div className="flex items-center gap-2">
+                  <code className="px-2.5 py-1 bg-white rounded border border-primary-300 font-mono text-primary-950 font-bold text-sm">
+                    {tenantSlug || orgName}
+                  </code>
+                </div>
+              </div>
+
+              <BackupCodesDisplay
+                codes={backupCodes}
+                title="Save Your Emergency Backup Codes"
+                description="Keep these 10 one-time codes safe. You will need one if you ever lose your phone or authenticator access."
+                showAcknowledgeCheckbox={true}
+                acknowledgeLabel="Continue to Tenant Setup Wizard"
+                onAcknowledge={handleFinishOnboarding}
+              />
+            </div>
           )}
         </Card>
       </div>

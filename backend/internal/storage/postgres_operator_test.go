@@ -207,9 +207,9 @@ func TestPostgresStore_OperatorActions(t *testing.T) {
 	noteID := uuid.New()
 	mock.ExpectBegin()
 	mock.ExpectQuery(regexp.QuoteMeta(`INSERT INTO conversation_messages`)).
-		WithArgs(tenantID, convID, domain.ActorOperator, sqlmock.AnyArg(), "Internal test note", sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "tenant_id", "conversation_id", "actor", "provider", "provider_message_id", "direction", "content", "message_type", "media_url", "status", "provider_timestamp", "created_at", "updated_at", "is_internal"}).
-			AddRow(noteID, tenantID, convID, domain.ActorOperator, "internal", "note:x", "OUTGOING", "Internal test note", "TEXT", "", "SENT", time.Now(), time.Now(), time.Now(), true))
+		WithArgs(tenantID, convID, domain.ActorOperator, sqlmock.AnyArg(), "", sqlmock.AnyArg(), "Internal test note", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "tenant_id", "conversation_id", "actor", "operator_id", "operator_name", "provider", "provider_message_id", "direction", "content", "message_type", "media_url", "status", "provider_timestamp", "created_at", "updated_at", "is_internal"}).
+			AddRow(noteID, tenantID, convID, domain.ActorOperator, nil, "", "internal", "note:x", "OUTGOING", "Internal test note", "TEXT", "", "SENT", time.Now(), time.Now(), time.Now(), true))
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE conversations SET last_activity_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$1 AND id=$2`)).
 		WithArgs(tenantID, convID).
 		WillReturnResult(sqlmock.NewResult(0, 1))

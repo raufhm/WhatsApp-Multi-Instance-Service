@@ -24,6 +24,11 @@ import {
   Paperclip,
   X,
   FileText,
+  AlertCircle,
+  Check,
+  CheckCheck,
+  Clock,
+  Users,
 } from 'lucide-react'
 
 const statusColors: Record<string, string> = {
@@ -60,7 +65,7 @@ const ConversationDetail: React.FC = () => {
   const { id } = useParams({ strict: false })
   const navigate = useNavigate()
   const { data, isLoading, isError } = useConversation(id!)
-  const sendMessage = useSendMessage()
+  const sendMessage = useSendMessage(id)
   const uploadMedia = useUploadMedia()
   const assign = useAssignConversation()
   const handoff = useHandoffConversation()
@@ -72,6 +77,7 @@ const ConversationDetail: React.FC = () => {
   const [note, setNote] = useState('')
   const [showNote, setShowNote] = useState(false)
   const [attachedMedia, setAttachedMedia] = useState<AttachedMedia | null>(null)
+  const [sendError, setSendError] = useState<string | null>(null)
   const timelineRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -96,7 +102,7 @@ const ConversationDetail: React.FC = () => {
     return (
       <div className="text-center py-12">
         <p className="text-gray-600">Conversation not found.</p>
-        <Button variant="secondary" className="mt-4" onClick={() => navigate({ to: '/' })}>
+        <Button variant="secondary" className="mt-4" onClick={() => navigate({ to: '/inbox' })}>
           Back to inbox
         </Button>
       </div>
@@ -178,20 +184,27 @@ const ConversationDetail: React.FC = () => {
       else msgType = 'DOCUMENT'
     }
 
+    const currentReply = reply
+    const currentAttachment = attachedMedia
+    setReply('')
+    handleRemoveAttachment()
+    setSendError(null)
+
     sendMessage.mutate(
       {
         account: conversation.account_id,
-        recipient: '', // recipient is the contact; backend resolves
-        message: text || (attachedMedia ? attachedMedia.file.name : ''),
+        recipient: conversation.contact_number || '',
+        message: text || (currentAttachment ? currentAttachment.file.name : ''),
         type: msgType,
         media_key: mediaKey,
+        is_group: !!conversation.is_group,
       },
       {
-        onSuccess: () => {
-          setReply('')
-          handleRemoveAttachment()
+        onError: (err) => {
+          const e = err as any
+          setReply(currentReply)
+          setSendError(e?.response?.data?.error || 'Failed to send message')
         },
-        onError: () => setReply(reply), // keep text on error
       }
     )
   }
@@ -211,19 +224,28 @@ const ConversationDetail: React.FC = () => {
     if (name) assign.mutate({ id: conversation.id, assignee: name })
   }
 
+  const displayName = conversation.contact_name || conversation.contact_number || `Ticket #${conversation.ticket_number}`
+
   return (
     <div className="h-[calc(100vh-8rem)] flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => navigate({ to: '/' })}>
+          <Button variant="ghost" size="sm" onClick={() => navigate({ to: '/inbox' })}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h1 className="text-xl font-semibold text-gray-900">
-              Ticket #{conversation.ticket_number}
+            <h1 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
+              {displayName}
+              {conversation.is_group && (
+                <span className="inline-flex items-center gap-0.5 text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                  <Users className="h-3.5 w-3.5" />
+                  Group
+                </span>
+              )}
             </h1>
-            <p className="text-sm text-gray-500">
+            <p className="text-[13px] text-gray-500">
+              {conversation.contact_number ? `${conversation.contact_number} • ` : ''}
               {conversation.assignee ? `Assigned to ${conversation.assignee}` : 'Unassigned'}
             </p>
           </div>
@@ -278,6 +300,14 @@ const ConversationDetail: React.FC = () => {
                   {m.is_internal && (
                     <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Internal note</p>
                   )}
+                  {(m.actor === 'OPERATOR' || m.actor === 'BOT' || m.direction === 'OUTGOING') && !m.is_internal && (
+                    <span
+                      className="text-[10px] font-semibold text-primary-200 block mb-0.5"
+                      title={m.operator_name ? `Sent by ${m.operator_name}` : `Sent by ${m.actor === 'BOT' ? 'Bot' : 'Operator'}`}
+                    >
+                      {m.operator_name || (m.actor === 'BOT' ? 'Bot' : 'Operator')}
+                    </span>
+                  )}
                   {m.message_type === 'IMAGE' && resolvedUrl ? (
                     <div className="mb-2">
                       <img
@@ -320,9 +350,45 @@ const ConversationDetail: React.FC = () => {
                     </div>
                   ) : null}
                   <p className="text-sm">{m.content}</p>
-                  <p className={`text-[10px] mt-1 ${m.actor === 'OPERATOR' || (m.direction === 'OUTGOING' && !m.is_internal) ? 'text-primary-100' : 'text-gray-400'}`}>
-                    {formatTime(m.provider_timestamp)}
-                  </p>
+                  <div className="flex items-center justify-end gap-1 mt-1">
+                    <span
+                      className={`text-[10px] ${
+                        m.actor === 'OPERATOR' || (m.direction === 'OUTGOING' && !m.is_internal)
+                          ? 'text-primary-100'
+                          : 'text-gray-400'
+                      }`}
+                    >
+                      {formatTime(m.provider_timestamp || m.created_at)}
+                    </span>
+                    {(m.actor === 'OPERATOR' || m.direction === 'OUTGOING') && !m.is_internal && (
+                      <span
+                        className="inline-flex items-center ml-0.5"
+                        title={
+                          m.status === 'PENDING'
+                            ? 'Pending'
+                            : m.status === 'READ'
+                              ? 'Read'
+                              : m.status === 'DELIVERED'
+                                ? 'Delivered'
+                                : m.status === 'FAILED'
+                                  ? 'Failed'
+                                  : 'Sent'
+                        }
+                      >
+                        {m.status === 'PENDING' ? (
+                          <Clock className="h-3 w-3 text-primary-200" />
+                        ) : m.status === 'READ' ? (
+                          <CheckCheck className="h-3.5 w-3.5 text-sky-300" />
+                        ) : m.status === 'DELIVERED' ? (
+                          <CheckCheck className="h-3.5 w-3.5 text-primary-200" />
+                        ) : m.status === 'FAILED' ? (
+                          <AlertCircle className="h-3 w-3 text-red-300" />
+                        ) : (
+                          <Check className="h-3.5 w-3.5 text-primary-200" />
+                        )}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             )
@@ -400,13 +466,19 @@ const ConversationDetail: React.FC = () => {
 
         {/* Reply composer */}
         <form onSubmit={handleSend} className="p-3 border-t border-gray-200">
+          {sendError && (
+            <div className="flex items-center gap-2 mb-2 text-sm text-red-600 bg-red-50 rounded px-3 py-1.5">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{sendError}</span>
+            </div>
+          )}
           <div className="flex items-end gap-2">
             <textarea
               className="form-control flex-1 resize-none"
               placeholder="Type a reply... (Shift+Enter for newline, Ctrl+Enter to send)"
               rows={2}
               value={reply}
-              onChange={(e) => setReply(e.target.value)}
+              onChange={(e) => { setReply(e.target.value); if (sendError) setSendError(null) }}
               onKeyDown={(e) => {
                 if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                   e.preventDefault()

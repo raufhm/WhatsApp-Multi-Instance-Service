@@ -1,0 +1,17 @@
+CREATE TABLE IF NOT EXISTS subscriptions (
+    tenant_id UUID PRIMARY KEY REFERENCES tenants(id),
+    plan_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    current_period_start TIMESTAMP WITH TIME ZONE NOT NULL,
+    current_period_end TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS quotas (
+    tenant_id UUID PRIMARY KEY REFERENCES tenants(id),
+    monthly_limit INT NOT NULL,
+    current_usage INT NOT NULL DEFAULT 0,
+    reset_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);

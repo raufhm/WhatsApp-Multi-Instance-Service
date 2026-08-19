@@ -15,6 +15,7 @@ import type {
 } from '@/types'
 
 export const TENANT_ID_KEY = 'whatsapp_dashboard_tenant_id'
+export const TENANT_SLUG_KEY = 'whatsapp_dashboard_tenant_slug'
 export const REMEMBER_ME_KEY = 'whatsapp_dashboard_remember_me'
 
 const apiClient = axios.create({
@@ -35,20 +36,27 @@ apiClient.interceptors.request.use(config => {
   if (tenantId && !config.headers['X-Tenant']) {
     config.headers['X-Tenant'] = tenantId
   }
+  const tenantSlug = localStorage.getItem(TENANT_SLUG_KEY)
+  if (tenantSlug && !config.headers['X-Tenant-Slug']) {
+    config.headers['X-Tenant-Slug'] = tenantSlug
+  }
   return config
 })
 
 const PUBLIC_PATH_PREFIXES = [
+  '/dashboard',
   '/dashboard/login',
   '/dashboard/signup',
   '/dashboard/verify-email',
   '/dashboard/invitation',
   '/dashboard/recovery',
+  '/dashboard/join',
   '/login',
   '/signup',
   '/verify-email',
   '/invitation',
   '/recovery',
+  '/join',
 ]
 
 apiClient.interceptors.response.use(
@@ -59,6 +67,7 @@ apiClient.interceptors.response.use(
       const isPublicPath = PUBLIC_PATH_PREFIXES.some(prefix => currentPath.startsWith(prefix))
       if (!isPublicPath) {
         localStorage.removeItem(TENANT_ID_KEY)
+        localStorage.removeItem(TENANT_SLUG_KEY)
         window.location.href = '/dashboard/login'
       }
     }
@@ -67,41 +76,64 @@ apiClient.interceptors.response.use(
 )
 
 export const authApi = {
-  login: async (tenantId: string, identifier: string, totpCode: string, rememberMe: boolean = false) => {
-    localStorage.setItem(TENANT_ID_KEY, tenantId)
+  login: async (tenantOrSlug: string, identifier: string, totpCode: string, rememberMe: boolean = false) => {
+    localStorage.setItem(TENANT_SLUG_KEY, tenantOrSlug)
+    localStorage.setItem(TENANT_ID_KEY, tenantOrSlug)
     const response = await apiClient.post(
       '/dashboard/api/login',
       {
+        tenant_id: tenantOrSlug,
+        tenant_slug: tenantOrSlug,
         identifier,
         email: identifier.includes('@') ? identifier : undefined,
         whatsapp_number: !identifier.includes('@') ? identifier : undefined,
         totp_code: totpCode,
         remember_me: rememberMe,
       },
-      { headers: { 'X-Tenant': tenantId } }
+      { headers: { 'X-Tenant': tenantOrSlug, 'X-Tenant-Slug': tenantOrSlug } }
     )
+    if (response.data?.tenant_id) {
+      localStorage.setItem(TENANT_ID_KEY, response.data.tenant_id)
+    }
+    if (response.data?.tenant_slug) {
+      localStorage.setItem(TENANT_SLUG_KEY, response.data.tenant_slug)
+    }
     return response.data
   },
 
-  loginWithBackupCode: async (tenantId: string, identifier: string, backupCode: string, rememberMe: boolean = false) => {
-    localStorage.setItem(TENANT_ID_KEY, tenantId)
+  loginWithBackupCode: async (tenantOrSlug: string, identifier: string, backupCode: string, rememberMe: boolean = false) => {
+    localStorage.setItem(TENANT_SLUG_KEY, tenantOrSlug)
+    localStorage.setItem(TENANT_ID_KEY, tenantOrSlug)
     const response = await apiClient.post(
       '/dashboard/api/login/backup-code',
       {
+        tenant_id: tenantOrSlug,
+        tenant_slug: tenantOrSlug,
         identifier,
         email: identifier.includes('@') ? identifier : undefined,
         whatsapp_number: !identifier.includes('@') ? identifier : undefined,
         backup_code: backupCode.trim(),
         remember_me: rememberMe,
       },
-      { headers: { 'X-Tenant': tenantId } }
+      { headers: { 'X-Tenant': tenantOrSlug, 'X-Tenant-Slug': tenantOrSlug } }
     )
+    if (response.data?.tenant_id) {
+      localStorage.setItem(TENANT_ID_KEY, response.data.tenant_id)
+    }
+    if (response.data?.tenant_slug) {
+      localStorage.setItem(TENANT_SLUG_KEY, response.data.tenant_slug)
+    }
     return response.data
   },
 
   logout: async () => {
-    const response = await apiClient.post('/dashboard/api/logout')
-    return response.data
+    try {
+      const response = await apiClient.post('/dashboard/api/logout')
+      return response.data
+    } finally {
+      localStorage.removeItem(TENANT_ID_KEY)
+      localStorage.removeItem(TENANT_SLUG_KEY)
+    }
   },
 
   getMe: async () => {
@@ -129,6 +161,8 @@ export const onboardingApi = {
     })
     return response.data as {
       tenant_id?: string
+      tenant_slug?: string
+      tenant_name?: string
       tenant?: Tenant
       operator?: Operator
       operator_id?: string
@@ -149,6 +183,8 @@ export const onboardingApi = {
       verified: boolean
       tenant?: Tenant
       tenant_id?: string
+      tenant_slug?: string
+      tenant_name?: string
       operator?: Operator
       operator_id?: string
       setup_token?: string
@@ -219,8 +255,20 @@ export const onboardingApi = {
     return await onboardingApi.verifyTotpSetup(setupToken, data.totp_code)
   },
 
-  requestRecovery: async (data: { tenant_id: string; identifier: string; channel?: 'whatsapp' | 'email' }) => {
-    const response = await apiClient.post('/dashboard/api/recovery/request', data)
+  requestRecovery: async (data: { tenant_id?: string; tenant_slug?: string; identifier: string; channel?: 'whatsapp' | 'email' }) => {
+    const tenantVal = data.tenant_slug || data.tenant_id || ''
+    const response = await apiClient.post(
+      '/dashboard/api/recovery/request',
+      {
+        tenant_id: tenantVal,
+        tenant_slug: tenantVal,
+        identifier: data.identifier,
+        channel: data.channel,
+      },
+      {
+        headers: { 'X-Tenant': tenantVal, 'X-Tenant-Slug': tenantVal },
+      }
+    )
     return response.data as { success: boolean; message?: string; instructions?: string }
   },
 }
@@ -246,8 +294,9 @@ export const invitationsApi = {
   },
 
   createWhatsAppInvitation: async (whatsappNumber: string, role: string) => {
+    const cleanedNumber = whatsappNumber.replace(/[^\d+]/g, '')
     const response = await apiClient.post('/dashboard/api/invitations/whatsapp', {
-      whatsapp_number: whatsappNumber,
+      whatsapp_number: cleanedNumber,
       role,
     })
     return response.data as Invitation

@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -30,6 +31,7 @@ type Server struct {
 
 type sessionAuth interface {
 	GetSessionByID(id uuid.UUID) (domain.Session, error)
+	GetOperatorByID(tenantID, operatorID uuid.UUID) (domain.Operator, error)
 }
 
 type apiError struct {
@@ -92,7 +94,7 @@ func page(r *http.Request) (int, int, bool) {
 // APIHandler is the versioned, authenticated application API. Legacy handlers
 // remain registered separately for backwards compatibility.
 func (s *Server) APIHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost && r.Method != http.MethodPatch && r.Method != http.MethodPut && r.Method != http.MethodDelete {
 		writeAPIError(w, 405, "METHOD_NOT_ALLOWED", "method not allowed")
 		return
 	}
@@ -101,6 +103,15 @@ func (s *Server) APIHandler(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, 401, "UNAUTHORIZED", "valid API key required")
 		return
 	}
+
+	if s.Platform != nil {
+		quota, err := s.Platform.GetQuota(tenant)
+		if err == nil && quota.CurrentUsage >= quota.MonthlyLimit {
+			writeAPIError(w, 429, "QUOTA_EXCEEDED", "quota exceeded")
+			return
+		}
+	}
+
 	path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/"), "/")
 	parts := strings.Split(path, "/")
 	if path == "" {
@@ -114,13 +125,17 @@ func (s *Server) APIHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	switch parts[0] {
 	case "accounts":
-		if len(parts) == 1 && r.Method == http.MethodGet {
-			v, err := s.Platform.ListAccounts(tenant)
-			if err != nil {
-				writeAPIError(w, 500, "INTERNAL_ERROR", "request failed")
+		if len(parts) == 1 {
+			if r.Method == http.MethodGet {
+				v, err := s.Platform.ListAccounts(tenant)
+				if err != nil {
+					writeAPIError(w, 500, "INTERNAL_ERROR", "request failed")
+					return
+				}
+				WriteJSON(w, 200, v)
 				return
 			}
-			WriteJSON(w, 200, v)
+			writeAPIError(w, 405, "METHOD_NOT_ALLOWED", "method not allowed")
 			return
 		}
 		if len(parts) == 3 && parts[2] == "messages" && r.Method == http.MethodPost {
@@ -136,14 +151,269 @@ func (s *Server) APIHandler(w http.ResponseWriter, r *http.Request) {
 			s.sendAPI(w, r, host)
 			return
 		}
-	case "contacts":
+	case "pipelines":
 		if len(parts) == 1 && r.Method == http.MethodGet {
-			v, err := s.Platform.ListContacts(tenant, limit, offset)
+			var isActive *bool
+			if actStr := r.URL.Query().Get("is_active"); actStr != "" {
+				actVal := actStr == "true" || actStr == "1"
+				isActive = &actVal
+			}
+			pipelines, err := s.Platform.ListPipelines(tenant, isActive)
 			if err != nil {
 				writeAPIError(w, 500, "INTERNAL_ERROR", "request failed")
 				return
 			}
-			WriteJSON(w, 200, toContactListDTO(v))
+			WriteJSON(w, 200, pipelines)
+			return
+		}
+		if len(parts) == 1 && r.Method == http.MethodPost {
+			var req struct {
+				Name        string `json:"name"`
+				Description string `json:"description"`
+				IsDefault   bool   `json:"is_default"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				writeAPIError(w, 400, "INVALID_BODY", "invalid request body")
+				return
+			}
+			if strings.TrimSpace(req.Name) == "" {
+				writeAPIError(w, 400, "INVALID_BODY", "pipeline name is required")
+				return
+			}
+			pipeline, err := s.Platform.CreatePipeline(tenant, req.Name, req.Description, req.IsDefault)
+			if err != nil {
+				if errors.Is(err, domain.ErrPipelineNameExists) {
+					writeAPIError(w, 409, "DUPLICATE_NAME", "pipeline with this name already exists")
+					return
+				}
+				writeAPIError(w, 500, "INTERNAL_ERROR", "failed to create pipeline")
+				return
+			}
+			WriteJSON(w, 201, pipeline)
+			return
+		}
+		if len(parts) == 2 {
+			id, err := uuid.Parse(parts[1])
+			if err != nil {
+				writeAPIError(w, 400, "INVALID_ID", "invalid pipeline id")
+				return
+			}
+			if r.Method == http.MethodGet {
+				pipeline, err := s.Platform.GetPipeline(tenant, id)
+				if err != nil {
+					if errors.Is(err, domain.ErrPipelineNotFound) {
+						writeAPIError(w, 404, "NOT_FOUND", "pipeline not found")
+						return
+					}
+					writeAPIError(w, 500, "INTERNAL_ERROR", "failed to get pipeline")
+					return
+				}
+				WriteJSON(w, 200, pipeline)
+				return
+			}
+			if r.Method == http.MethodPatch || r.Method == http.MethodPut {
+				var req struct {
+					Name        *string `json:"name"`
+					Description *string `json:"description"`
+					IsDefault   *bool   `json:"is_default"`
+					IsActive    *bool   `json:"is_active"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					writeAPIError(w, 400, "INVALID_BODY", "invalid request body")
+					return
+				}
+				pipeline, err := s.Platform.UpdatePipeline(tenant, id, req.Name, req.Description, req.IsDefault, req.IsActive)
+				if err != nil {
+					if errors.Is(err, domain.ErrPipelineNotFound) {
+						writeAPIError(w, 404, "NOT_FOUND", "pipeline not found")
+						return
+					}
+					if errors.Is(err, domain.ErrPipelineNameExists) {
+						writeAPIError(w, 409, "DUPLICATE_NAME", "pipeline with this name already exists")
+						return
+					}
+					if errors.Is(err, domain.ErrDefaultPipelineCannotBeInactive) || errors.Is(err, domain.ErrCannotDeleteDefaultPipeline) {
+						writeAPIError(w, 400, "INVALID_REQUEST", err.Error())
+						return
+					}
+					writeAPIError(w, 500, "INTERNAL_ERROR", "failed to update pipeline")
+					return
+				}
+				WriteJSON(w, 200, pipeline)
+				return
+			}
+			if r.Method == http.MethodDelete {
+				if err := s.Platform.DeletePipeline(tenant, id); err != nil {
+					if errors.Is(err, domain.ErrPipelineNotFound) {
+						writeAPIError(w, 404, "NOT_FOUND", "pipeline not found")
+						return
+					}
+					if errors.Is(err, domain.ErrCannotDeleteDefaultPipeline) {
+						writeAPIError(w, 400, "CANNOT_DELETE_DEFAULT", "cannot delete default pipeline")
+						return
+					}
+					if errors.Is(err, domain.ErrPipelineContainsStages) {
+						writeAPIError(w, 409, "PIPELINE_NOT_EMPTY", "cannot delete pipeline containing stages")
+						return
+					}
+					writeAPIError(w, 500, "INTERNAL_ERROR", "failed to delete pipeline")
+					return
+				}
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+		}
+	case "deal-stages":
+		if len(parts) == 1 && r.Method == http.MethodGet {
+			var pipelineID *uuid.UUID
+			if plStr := r.URL.Query().Get("pipeline_id"); plStr != "" {
+				if plUUID, err := uuid.Parse(plStr); err == nil {
+					pipelineID = &plUUID
+				}
+			}
+			var isActive *bool
+			if actStr := r.URL.Query().Get("is_active"); actStr != "" {
+				actVal := actStr == "true" || actStr == "1"
+				isActive = &actVal
+			}
+			stages, err := s.Platform.ListDealStages(tenant, pipelineID, isActive)
+			if err != nil {
+				writeAPIError(w, 500, "INTERNAL_ERROR", "request failed")
+				return
+			}
+			WriteJSON(w, 200, stages)
+			return
+		}
+		if len(parts) == 1 && r.Method == http.MethodPost {
+			var req struct {
+				PipelineID *string `json:"pipeline_id,omitempty"`
+				Key        string  `json:"key"`
+				Label      string  `json:"label"`
+				Color      string  `json:"color"`
+				Icon       string  `json:"icon"`
+				SortOrder  int     `json:"sort_order"`
+				IsWon      bool    `json:"is_won"`
+				IsLost     bool    `json:"is_lost"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				writeAPIError(w, 400, "INVALID_BODY", "invalid request body")
+				return
+			}
+			if strings.TrimSpace(req.Key) == "" || strings.TrimSpace(req.Label) == "" {
+				writeAPIError(w, 400, "INVALID_BODY", "key and label are required")
+				return
+			}
+			var plUUID *uuid.UUID
+			if req.PipelineID != nil && *req.PipelineID != "" {
+				parsed, err := uuid.Parse(*req.PipelineID)
+				if err != nil {
+					writeAPIError(w, 400, "INVALID_ID", "invalid pipeline_id")
+					return
+				}
+				plUUID = &parsed
+			}
+			stage, err := s.Platform.CreateDealStage(tenant, plUUID, req.Key, req.Label, req.Color, req.Icon, req.SortOrder, req.IsWon, req.IsLost)
+			if err != nil {
+				if errors.Is(err, domain.ErrPipelineNotFound) {
+					writeAPIError(w, 404, "NOT_FOUND", "pipeline not found")
+					return
+				}
+				writeAPIError(w, 500, "INTERNAL_ERROR", "failed to create deal stage")
+				return
+			}
+			WriteJSON(w, 201, stage)
+			return
+		}
+		if len(parts) == 2 {
+			id, err := uuid.Parse(parts[1])
+			if err != nil {
+				writeAPIError(w, 400, "INVALID_ID", "invalid deal stage id")
+				return
+			}
+			if r.Method == http.MethodGet {
+				stage, err := s.Platform.GetDealStage(tenant, id)
+				if err != nil {
+					if errors.Is(err, domain.ErrStageNotFound) {
+						writeAPIError(w, 404, "NOT_FOUND", "deal stage not found")
+						return
+					}
+					writeAPIError(w, 500, "INTERNAL_ERROR", "failed to get deal stage")
+					return
+				}
+				WriteJSON(w, 200, stage)
+				return
+			}
+			if r.Method == http.MethodPatch || r.Method == http.MethodPut {
+				var req struct {
+					PipelineID *string `json:"pipeline_id"`
+					Label      *string `json:"label"`
+					Color      *string `json:"color"`
+					Icon       *string `json:"icon"`
+					SortOrder  *int    `json:"sort_order"`
+					IsActive   *bool   `json:"is_active"`
+					IsWon      *bool   `json:"is_won"`
+					IsLost     *bool   `json:"is_lost"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					writeAPIError(w, 400, "INVALID_BODY", "invalid request body")
+					return
+				}
+				var plUUID *uuid.UUID
+				if req.PipelineID != nil && *req.PipelineID != "" {
+					parsed, err := uuid.Parse(*req.PipelineID)
+					if err != nil {
+						writeAPIError(w, 400, "INVALID_ID", "invalid pipeline_id")
+						return
+					}
+					plUUID = &parsed
+				}
+				stage, err := s.Platform.UpdateDealStage(tenant, id, plUUID, req.Label, req.Color, req.Icon, req.SortOrder, req.IsActive, req.IsWon, req.IsLost)
+				if err != nil {
+					if errors.Is(err, domain.ErrStageNotFound) {
+						writeAPIError(w, 404, "NOT_FOUND", "deal stage not found")
+						return
+					}
+					if errors.Is(err, domain.ErrPipelineNotFound) {
+						writeAPIError(w, 404, "NOT_FOUND", "pipeline not found")
+						return
+					}
+					writeAPIError(w, 500, "INTERNAL_ERROR", "failed to update deal stage")
+					return
+				}
+				WriteJSON(w, 200, stage)
+				return
+			}
+			if r.Method == http.MethodDelete {
+				if err := s.Platform.DeleteDealStage(tenant, id); err != nil {
+					if errors.Is(err, domain.ErrStageNotFound) {
+						writeAPIError(w, 404, "NOT_FOUND", "deal stage not found")
+						return
+					}
+					if errors.Is(err, domain.ErrStageAssignedToContacts) {
+						writeAPIError(w, 409, "STAGE_ASSIGNED_TO_CONTACTS", "stage is currently assigned to contacts")
+						return
+					}
+					writeAPIError(w, 500, "INTERNAL_ERROR", "failed to delete deal stage")
+					return
+				}
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+		}
+	case "contacts":
+		if len(parts) == 1 && r.Method == http.MethodGet {
+			search := r.URL.Query().Get("q")
+			v, total, err := s.Platform.ListContacts(tenant, limit, offset, search)
+			if err != nil {
+				writeAPIError(w, 500, "INTERNAL_ERROR", "request failed")
+				return
+			}
+			WriteJSON(w, 200, map[string]any{
+				"items":  toContactListDTO(v),
+				"total":  total,
+				"limit":  limit,
+				"offset": offset,
+			})
 			return
 		}
 		if len(parts) == 2 && r.Method == http.MethodGet {
@@ -155,6 +425,65 @@ func (s *Server) APIHandler(w http.ResponseWriter, r *http.Request) {
 			v, err := s.Platform.GetContact(tenant, id)
 			if err != nil {
 				writeAPIError(w, 404, "NOT_FOUND", "contact not found")
+				return
+			}
+			WriteJSON(w, 200, toContactDTO(v))
+			return
+		}
+		if len(parts) == 2 && r.Method == http.MethodPatch {
+			id, err := uuid.Parse(parts[1])
+			if err != nil {
+				writeAPIError(w, 400, "INVALID_ID", "invalid contact id")
+				return
+			}
+			if _, err := s.Platform.GetContact(tenant, id); err != nil {
+				writeAPIError(w, 404, "NOT_FOUND", "contact not found")
+				return
+			}
+			var req struct {
+				Name         string         `json:"name"`
+				Email        string         `json:"email"`
+				Tags         []string       `json:"tags"`
+				CustomValues map[string]any `json:"custom_values"`
+				DealStageKey *string        `json:"deal_stage_key,omitempty"`
+				DealStageID  *string        `json:"deal_stage_id,omitempty"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				writeAPIError(w, 400, "INVALID_BODY", "invalid request body")
+				return
+			}
+			var dealStageKey string
+			var dealStageID *uuid.UUID
+			var clearDealStage bool
+			if req.DealStageID != nil {
+				if *req.DealStageID == "" {
+					clearDealStage = true
+				} else {
+					parsed, err := uuid.Parse(*req.DealStageID)
+					if err != nil {
+						writeAPIError(w, 400, "INVALID_ID", "invalid deal_stage_id")
+						return
+					}
+					dealStageID = &parsed
+				}
+			} else if req.DealStageKey != nil {
+				if *req.DealStageKey == "" {
+					clearDealStage = true
+				} else {
+					dealStageKey = *req.DealStageKey
+				}
+			}
+			v, err := s.Platform.UpdateContact(tenant, id, domain.ContactUpdateInput{
+				DisplayName:    req.Name,
+				Email:          req.Email,
+				Tags:           req.Tags,
+				CustomValues:   req.CustomValues,
+				DealStageKey:   dealStageKey,
+				DealStageID:    dealStageID,
+				ClearDealStage: clearDealStage,
+			})
+			if err != nil {
+				writeAPIError(w, 500, "INTERNAL_ERROR", "failed to update contact")
 				return
 			}
 			WriteJSON(w, 200, toContactDTO(v))
@@ -184,10 +513,183 @@ func (s *Server) APIHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		if len(parts) == 3 && parts[2] == "conversations" && r.Method == http.MethodGet {
+			id, err := uuid.Parse(parts[1])
+			if err != nil {
+				writeAPIError(w, 400, "INVALID_ID", "invalid contact id")
+				return
+			}
+			if _, err := s.Platform.GetContact(tenant, id); err != nil {
+				writeAPIError(w, 404, "NOT_FOUND", "contact not found")
+				return
+			}
+			v, err := s.Platform.ListContactConversations(tenant, id, limit, offset)
+			if err != nil {
+				writeAPIError(w, 500, "INTERNAL_ERROR", "request failed")
+				return
+			}
+			WriteJSON(w, 200, v)
+			return
+		}
+		if len(parts) == 3 && parts[2] == "deal-history" {
+			id, err := uuid.Parse(parts[1])
+			if err != nil {
+				writeAPIError(w, 400, "INVALID_ID", "invalid contact id")
+				return
+			}
+			if _, err := s.Platform.GetContact(tenant, id); err != nil {
+				writeAPIError(w, 404, "NOT_FOUND", "contact not found")
+				return
+			}
+			dhLimit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+			if dhLimit <= 0 {
+				dhLimit = 50
+			}
+			dhOffset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+			history, err := s.Platform.ListDealStageHistory(tenant, id, dhLimit, dhOffset)
+			if err != nil {
+				writeAPIError(w, 500, "INTERNAL_ERROR", "request failed")
+				return
+			}
+			WriteJSON(w, 200, history)
+			return
+		}
+		if len(parts) == 3 && (parts[2] == "deal-stage" || parts[2] == "move-stage" || parts[2] == "move_stage") && r.Method == http.MethodPost {
+			id, err := uuid.Parse(parts[1])
+			if err != nil {
+				writeAPIError(w, 400, "INVALID_ID", "invalid contact id")
+				return
+			}
+			if _, err := s.Platform.GetContact(tenant, id); err != nil {
+				writeAPIError(w, 404, "NOT_FOUND", "contact not found")
+				return
+			}
+			var req struct {
+				StageKey    string  `json:"stage_key"`
+				StageID     *string `json:"stage_id,omitempty"`
+				DealStageID *string `json:"deal_stage_id,omitempty"`
+				Note        string  `json:"note,omitempty"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				writeAPIError(w, 400, "INVALID_BODY", "invalid request body")
+				return
+			}
+			var stageUUID *uuid.UUID
+			if req.DealStageID != nil && *req.DealStageID != "" {
+				parsed, err := uuid.Parse(*req.DealStageID)
+				if err != nil {
+					writeAPIError(w, 400, "INVALID_ID", "invalid deal_stage_id")
+					return
+				}
+				stageUUID = &parsed
+			} else if req.StageID != nil && *req.StageID != "" {
+				parsed, err := uuid.Parse(*req.StageID)
+				if err != nil {
+					writeAPIError(w, 400, "INVALID_ID", "invalid stage_id")
+					return
+				}
+				stageUUID = &parsed
+			}
+			opID := uuid.Nil
+			if opStr := s.operatorID(r); opStr != "" {
+				if parsed, err := uuid.Parse(opStr); err == nil {
+					opID = parsed
+				}
+			}
+			transition, err := s.Platform.MoveContactToStage(tenant, id, req.StageKey, stageUUID, req.Note, opID)
+			if err != nil {
+				if errors.Is(err, domain.ErrStageNotFound) {
+					writeAPIError(w, 404, "NOT_FOUND", "deal stage not found")
+					return
+				}
+				writeAPIError(w, 500, "INTERNAL_ERROR", "failed to move deal stage")
+				return
+			}
+			WriteJSON(w, 200, transition)
+			return
+		}
+	case "contact-field-definitions":
+		if len(parts) == 1 {
+			if r.Method == http.MethodGet {
+				v, err := s.Platform.ListContactFieldDefinitions(tenant)
+				if err != nil {
+					writeAPIError(w, 500, "INTERNAL_ERROR", "request failed")
+					return
+				}
+				WriteJSON(w, 200, v)
+				return
+			}
+			if r.Method == http.MethodPost {
+				var req struct {
+					Key        string   `json:"key"`
+					Label      string   `json:"label"`
+					FieldType  string   `json:"field_type"`
+					Options    []string `json:"options"`
+					IsRequired bool     `json:"is_required"`
+					SortOrder  int      `json:"sort_order"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					writeAPIError(w, 400, "INVALID_BODY", "invalid request body")
+					return
+				}
+				v, err := s.Platform.CreateContactFieldDefinition(tenant, req.Key, req.Label, req.FieldType, req.Options, req.IsRequired, req.SortOrder)
+				if err != nil {
+					writeAPIError(w, 500, "INTERNAL_ERROR", "failed to create field")
+					return
+				}
+				WriteJSON(w, 201, v)
+				return
+			}
+		}
+		if len(parts) == 2 {
+			id, err := uuid.Parse(parts[1])
+			if err != nil {
+				writeAPIError(w, 400, "INVALID_ID", "invalid field id")
+				return
+			}
+			if r.Method == http.MethodGet {
+				v, err := s.Platform.GetContactFieldDefinition(tenant, id)
+				if err != nil {
+					writeAPIError(w, 404, "NOT_FOUND", "field not found")
+					return
+				}
+				WriteJSON(w, 200, v)
+				return
+			}
+			if r.Method == http.MethodPatch || r.Method == http.MethodPut {
+				var req struct {
+					Label      string   `json:"label"`
+					FieldType  string   `json:"field_type"`
+					Options    []string `json:"options"`
+					IsRequired bool     `json:"is_required"`
+					SortOrder  int      `json:"sort_order"`
+					IsActive   bool     `json:"is_active"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					writeAPIError(w, 400, "INVALID_BODY", "invalid request body")
+					return
+				}
+				v, err := s.Platform.UpdateContactFieldDefinition(tenant, id, req.Label, req.FieldType, req.Options, req.IsRequired, req.SortOrder, req.IsActive)
+				if err != nil {
+					writeAPIError(w, 500, "INTERNAL_ERROR", "failed to update field")
+					return
+				}
+				WriteJSON(w, 200, v)
+				return
+			}
+			if r.Method == http.MethodDelete {
+				if err := s.Platform.DeleteContactFieldDefinition(tenant, id); err != nil {
+					writeAPIError(w, 500, "INTERNAL_ERROR", "failed to delete field")
+					return
+				}
+				WriteJSON(w, 204, nil)
+				return
+			}
+		}
 	case "conversations", "tickets":
 		if r.Method == http.MethodGet {
 			status := r.URL.Query().Get("status")
-			v, err := s.Platform.ListConversations(tenant, status, limit, offset)
+			v, err := s.Platform.ListConversationSummaries(tenant, status, limit, offset)
 			if err != nil {
 				writeAPIError(w, 500, "INTERNAL_ERROR", "request failed")
 				return
@@ -205,6 +707,25 @@ func (s *Server) APIHandler(w http.ResponseWriter, r *http.Request) {
 							return
 						}
 						WriteJSON(w, 200, map[string]any{"conversation": c, "messages": msgs})
+						return
+					}
+				}
+				if convID, err := uuid.Parse(parts[1]); err == nil {
+					if conv, err := s.Platform.GetConversation(tenant, convID); err == nil {
+						msgs, e := s.Platform.GetConversationTimeline(tenant, conv.ID, limit, offset)
+						if e != nil {
+							writeAPIError(w, 500, "INTERNAL_ERROR", "request failed")
+							return
+						}
+						summary := domain.ConversationSummary{
+							Conversation: conv,
+						}
+						if contact, err := s.Platform.GetContact(tenant, conv.ContactID); err == nil {
+							summary.ContactName = contact.DisplayName
+							summary.ContactNumber = contact.ProviderAddress
+							summary.IsGroup = contact.IsGroup
+						}
+						WriteJSON(w, 200, map[string]any{"conversation": summary, "messages": msgs})
 						return
 					}
 				}
@@ -396,15 +917,33 @@ func (s *Server) sendAPI(w http.ResponseWriter, r *http.Request, host string) {
 	if req.Type == "" {
 		req.Type = domain.Text
 	}
+	isGroup := req.IsGroup || strings.HasSuffix(req.Recipient, "@g.us") || strings.Contains(req.Recipient, "-")
+
+	// Resolve operator attribution
+	var operatorID *uuid.UUID
+	var operatorName string
+	if opIDStr := s.operatorID(r); opIDStr != "" && opIDStr != "api" {
+		if opUUID, err := uuid.Parse(opIDStr); err == nil {
+			operatorID = &opUUID
+			if tenantID, ok := s.tenant(r); ok && s.Auth != nil {
+				if op, err := s.Auth.GetOperatorByID(tenantID, opUUID); err == nil {
+					operatorName = op.Name
+				}
+			}
+		}
+	}
+
 	if err := s.Manager.SendMessageRequest(host, domain.MessageRequest{
 		Recipient:      req.Recipient,
 		Message:        req.Message,
-		IsGroup:        req.IsGroup,
+		IsGroup:        isGroup,
 		Type:           req.Type,
 		MediaPath:      req.MediaPath,
 		MediaKey:       req.MediaKey,
 		ReactionTarget: req.ReactionTarget,
 		Actor:          domain.ActorOperator,
+		OperatorID:     operatorID,
+		OperatorName:   operatorName,
 	}); err != nil {
 		writeAPIError(w, 404, "ACCOUNT_NOT_FOUND", err.Error())
 		return
@@ -520,6 +1059,7 @@ func (s *Server) SendHandler(w http.ResponseWriter, r *http.Request) {
 		MediaPath:      req.MediaPath,
 		MediaKey:       req.MediaKey,
 		ReactionTarget: req.ReactionTarget,
+		Actor:          domain.ActorOperator,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)

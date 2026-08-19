@@ -7,6 +7,7 @@ import apiClient from '@/lib/apiClient'
 
 vi.mock('@/lib/apiClient', () => ({
   TENANT_ID_KEY: 'whatsapp_dashboard_tenant_id',
+  TENANT_SLUG_KEY: 'whatsapp_dashboard_tenant_slug',
   REMEMBER_ME_KEY: 'whatsapp_dashboard_remember_me',
   default: {
     get: vi.fn(),
@@ -71,7 +72,7 @@ describe('useAuth', () => {
 
     const mockUser = { id: 'op-2', name: 'Operator Two', email: 'op2@example.com' }
     vi.mocked(apiClient.post).mockResolvedValueOnce({
-      data: { user: mockUser },
+      data: { user: mockUser, tenant_id: 'tenant-1', tenant_slug: 'acme-corp' },
     })
 
     const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() })
@@ -81,12 +82,42 @@ describe('useAuth', () => {
     })
 
     await act(async () => {
-      await result.current.login('tenant-1', 'op2@example.com', 'password123')
+      await result.current.login('acme-corp', 'op2@example.com', '123456')
     })
 
     await waitFor(() => {
       expect(result.current.isAuthenticated).toBe(true)
     })
     expect(result.current.user).toEqual(mockUser)
+    expect(result.current.tenantSlug).toBe('acme-corp')
+    expect(result.current.tenantId).toBe('tenant-1')
+  })
+
+  it('logs in with backup code and company slug successfully', async () => {
+    vi.mocked(apiClient.get).mockRejectedValueOnce({
+      response: { status: 401 },
+    })
+
+    const mockUser = { id: 'op-3', name: 'Operator Three', email: 'op3@example.com' }
+    vi.mocked(apiClient.post).mockResolvedValueOnce({
+      data: { user: mockUser, tenant_id: 'tenant-3', tenant_slug: 'acme-hq', tenant_name: 'Acme HQ' },
+    })
+
+    const { result } = renderHook(() => useAuth(), { wrapper: createWrapper() })
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false)
+    })
+
+    await act(async () => {
+      await result.current.loginWithBackupCode('Acme HQ', 'op3@example.com', 'A1B2-C3D4')
+    })
+
+    await waitFor(() => {
+      expect(result.current.isAuthenticated).toBe(true)
+    })
+    expect(result.current.user).toEqual(mockUser)
+    expect(result.current.tenantSlug).toBe('acme-hq')
+    expect(result.current.tenantName).toBe('Acme HQ')
   })
 })

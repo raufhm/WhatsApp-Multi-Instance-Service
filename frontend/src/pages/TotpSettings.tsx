@@ -74,13 +74,13 @@ export const TotpSettings: React.FC = () => {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-5">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-          <ShieldCheck className="h-7 w-7 text-primary-600" />
+        <h1 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
+          <ShieldCheck className="h-6 w-6 text-primary-600" />
           Security & Authenticator Settings
         </h1>
-        <p className="text-sm text-gray-600 mt-1">
+        <p className="text-[13px] text-gray-600 mt-1">
           Manage your Time-based One-Time Password (TOTP) two-factor authentication and recovery backup
           codes.
         </p>
@@ -102,7 +102,7 @@ export const TotpSettings: React.FC = () => {
       )}
 
       {newBackupCodes ? (
-        <Card className="p-6 sm:p-8">
+        <Card className="p-5 sm:p-6">
           <div className="mb-4 flex items-center justify-between">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
               <CheckCircle2 className="h-4 w-4 text-green-600" />
@@ -126,9 +126,9 @@ export const TotpSettings: React.FC = () => {
           />
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {/* Card 1: TOTP Authenticator Status */}
-          <Card className="p-6 space-y-4">
+          <Card className="p-5 space-y-4">
             <div className="flex items-start justify-between">
               <div>
                 <h2 className="text-lg font-bold text-gray-900">Authenticator (TOTP)</h2>
@@ -166,7 +166,7 @@ export const TotpSettings: React.FC = () => {
           </Card>
 
           {/* Card 2: Backup Codes Status & Regeneration */}
-          <Card className="p-6 space-y-4">
+          <Card className="p-5 space-y-4">
             <div className="flex items-start justify-between">
               <div>
                 <h2 className="text-lg font-bold text-gray-900">Recovery Backup Codes</h2>

@@ -21,7 +21,7 @@ func BuildInvitationMessage(tenant domain.Tenant, inv domain.Invitation, token s
 
 	return fmt.Sprintf(
 		"👋 Hello!\n\n"+
-			"You have been invited by *%s* to join *%s* on WhatsApp Multi-Instance Service.\n\n"+
+			"You have been invited by *%s* to join *%s* on *whops*.\n\n"+
 			"📋 *Your Role:* %s\n"+
 			"🔑 *Your Invitation Code:* `%s`\n\n"+
 			"To get started and set up your account:\n"+

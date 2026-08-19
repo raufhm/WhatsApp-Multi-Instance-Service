@@ -64,7 +64,7 @@ export function DataTable<TData extends { id: string }>({
   return (
     <Card className="overflow-hidden">
       {enableGlobalFilter && (
-        <div className="p-3 border-b border-gray-200">
+        <div className="p-2 border-b border-gray-200">
           <input
             className="form-control max-w-xs"
             placeholder="Search..."
@@ -75,14 +75,14 @@ export function DataTable<TData extends { id: string }>({
       )}
 
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+        <table className="min-w-full divide-y divide-gray-200/80">
+          <thead className="bg-gray-50/70">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
                   <th
                     key={header.id}
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                    className="px-4 py-2 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wider"
                     colSpan={header.colSpan}
                   >
                     {header.isPlaceholder ? null : header.column.getCanSort() ? (
@@ -106,23 +106,23 @@ export function DataTable<TData extends { id: string }>({
               </tr>
             ))}
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+          <tbody className="bg-white divide-y divide-gray-200/80">
             {table.getRowModel().rows.length === 0 ? (
               <tr>
-                <td colSpan={columns.length} className="px-6 py-8 text-center text-gray-500">
+                <td colSpan={columns.length} className="px-4 py-10 text-center text-sm text-gray-400">
                   {emptyMessage}
                 </td>
               </tr>
             ) : (
               table.getRowModel().rows.map((row) => (
-                <tr key={row.id} className="hover:bg-gray-50">
+                <tr key={row.id} className="hover:bg-gray-50/70">
                   {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                    <td key={cell.id} className="px-4 py-2.5 whitespace-nowrap text-[13px] text-gray-700">
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>
                   ))}
                   {renderActions && (
-                    <td className="px-6 py-4 whitespace-nowrap text-sm" onClick={(e) => e.stopPropagation()}>
+                    <td className="px-4 py-2.5 whitespace-nowrap text-[13px]" onClick={(e) => e.stopPropagation()}>
                       {renderActions(row.original)}
                     </td>
                   )}
@@ -134,8 +134,8 @@ export function DataTable<TData extends { id: string }>({
       </div>
 
       {table.getPageCount() > 1 && (
-        <div className="p-3 border-t border-gray-200 flex items-center justify-between">
-          <span className="text-sm text-gray-500">
+        <div className="px-3 py-2 border-t border-gray-200 flex items-center justify-between">
+          <span className="text-xs text-gray-500">
             Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount()}
           </span>
           <div className="flex gap-2">

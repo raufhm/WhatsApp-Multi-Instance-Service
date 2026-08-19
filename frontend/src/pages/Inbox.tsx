@@ -1,246 +1,117 @@
-import React, { useMemo, useState } from 'react'
-import { useNavigate } from '@tanstack/react-router'
-import { useInbox, useActivities, useAcknowledgeActivity, useAssignConversation, type ConversationFilters } from '@/hooks/useInbox'
-import type { Conversation } from '@/types'
-import Button from '@/components/ui/button'
-import Card from '@/components/ui/card'
-import { DataTable, createColumnHelper } from '@/components/ui/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
-import { Inbox as InboxIcon, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
-
-const statusColors: Record<string, string> = {
-  OPEN: 'bg-green-100 text-green-800',
-  BOT_ACTIVE: 'bg-blue-100 text-blue-800',
-  WAITING: 'bg-yellow-100 text-yellow-800',
-  HANDED_OFF: 'bg-purple-100 text-purple-800',
-  CLOSED: 'bg-gray-100 text-gray-800',
-}
-
-const formatTime = (iso: string) => {
-  const d = new Date(iso)
-  return d.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
+import React, { useState, useEffect } from 'react'
+import { useParams, useNavigate } from '@tanstack/react-router'
+import { useInbox, useConversation } from '@/hooks/useInbox'
+import ConversationList from '@/components/inbox/ConversationList'
+import ConversationThread from '@/components/inbox/ConversationThread'
+import ConversationDetails from '@/components/inbox/ConversationDetails'
+import { ChevronLeft, PanelRightClose } from 'lucide-react'
 
 const Inbox: React.FC = () => {
   const navigate = useNavigate()
-  const [statusFilter, setStatusFilter] = useState('')
-  const [assigneeFilter, setAssigneeFilter] = useState('')
-  const [searchTerm, setSearchTerm] = useState('')
+  const { id } = useParams({ strict: false })
+  const selectedId = id || null
 
-  const filters: ConversationFilters = useMemo(
-    () => ({
-      status: statusFilter || undefined,
-      assignee: assigneeFilter || undefined,
-      limit: 50,
-    }),
-    [statusFilter, assigneeFilter]
-  )
-
-  const { data: conversations = [], isLoading, isError, refetch } = useInbox(filters)
-  const { data: activities = [] } = useActivities()
-  const acknowledgeActivity = useAcknowledgeActivity()
-
-  const assignMutation = useAssignConversation()
-
-  const filtered = useMemo(() => {
-    const list = Array.isArray(conversations) ? conversations : []
-    if (!searchTerm) return list
-    const q = searchTerm.toLowerCase()
-    return list.filter(
-      (c) =>
-        String(c.ticket_number).includes(q) ||
-        (c.assignee && c.assignee.toLowerCase().includes(q)) ||
-        c.status.toLowerCase().includes(q)
-    )
-  }, [conversations, searchTerm])
-
-  const pendingActivities = useMemo(() => {
-    const list = Array.isArray(activities) ? activities : []
-    return list.filter((a) => a.status === 'PENDING')
-  }, [activities])
-
-  const handleAssign = (c: Conversation) => {
-    const name = window.prompt('Assign to operator:', c.assignee || '')
-    if (name) {
-      assignMutation.mutate({ id: c.id, assignee: name })
+  const [detailsCollapsed, setDetailsCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('conversation-details-collapsed') === 'true'
+    } catch {
+      return false
     }
+  })
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('conversation-details-collapsed', String(detailsCollapsed))
+    } catch {
+      // ignore
+    }
+  }, [detailsCollapsed])
+
+  const {
+    data: conversations = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useInbox({ limit: 100 })
+
+  const { data: conversationData } = useConversation(selectedId || '')
+
+  const handleSelect = (conversationId: string) => {
+    if (conversationId === selectedId) return
+    navigate({ to: '/conversations/$id', params: { id: conversationId } })
   }
 
-  const columns: ColumnDef<Conversation, any>[] = useMemo(() => {
-    const helper = createColumnHelper<Conversation>()
-    return [
-      helper.accessor('ticket_number', {
-        header: 'Ticket',
-        cell: (info) => (
-          <span className="font-medium text-primary-600">#{info.getValue()}</span>
-        ),
-      }),
-      helper.accessor('status', {
-        header: 'Status',
-        cell: (info) => (
-          <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusColors[info.getValue()] || 'bg-gray-100 text-gray-800'}`}>
-            {info.getValue()}
-          </span>
-        ),
-      }),
-      helper.accessor('assignee', {
-        header: 'Assignee',
-        cell: (info) => info.getValue() || <span className="text-gray-400">Unassigned</span>,
-      }),
-      helper.accessor('last_activity_at', {
-        header: 'Last activity',
-        cell: (info) => formatTime(info.getValue()),
-      }),
-    ]
-  }, [])
-
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Inbox</h1>
-          <p className="text-sm text-gray-600">Manage customer conversations and follow-ups</p>
-        </div>
-        <Button variant="secondary" size="sm" onClick={() => refetch()}>
-          Refresh
-        </Button>
+    <div className="h-[calc(100vh-5.5rem)] -mx-4 -my-5 flex bg-white">
+      <div className="w-80 border-r border-gray-200 flex flex-col bg-gray-50">
+        <ConversationList
+          conversations={conversations}
+          selectedId={selectedId}
+          isLoading={isLoading}
+          isError={isError}
+          onSelect={handleSelect}
+          onRetry={() => refetch()}
+        />
       </div>
 
-      {/* Filters */}
-      <Card className="mb-6 p-4">
-        <div className="flex flex-wrap gap-3">
-          <select
-            className="form-control max-w-[180px]"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            aria-label="Filter by status"
-          >
-            <option value="">All statuses</option>
-            <option value="OPEN">Open</option>
-            <option value="BOT_ACTIVE">Bot active</option>
-            <option value="WAITING">Waiting</option>
-            <option value="HANDED_OFF">Handed off</option>
-            <option value="CLOSED">Closed</option>
-          </select>
-          <input
-            className="form-control max-w-[200px]"
-            placeholder="Search ticket, assignee..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            aria-label="Search conversations"
-          />
-          <input
-            className="form-control max-w-[180px]"
-            placeholder="Filter by assignee"
-            value={assigneeFilter}
-            onChange={(e) => setAssigneeFilter(e.target.value)}
-            aria-label="Filter by assignee"
-          />
-        </div>
-      </Card>
-
-      {isLoading ? (
-        <div className="flex justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-primary-500" />
-        </div>
-      ) : isError ? (
-        <div className="text-center py-12">
-          <AlertCircle className="h-12 w-12 text-red-400 mx-auto mb-3" />
-          <p className="text-gray-600">Failed to load conversations.</p>
-          <Button variant="primary" size="sm" className="mt-4" onClick={() => refetch()}>
-            Retry
-          </Button>
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="text-center py-12">
-          <InboxIcon className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-600">No tickets match your filters.</p>
-          <Button
-            variant="secondary"
-            size="sm"
-            className="mt-4"
-            onClick={() => {
-              setStatusFilter('')
-              setSearchTerm('')
-              setAssigneeFilter('')
-            }}
-          >
-            Clear filters
-          </Button>
-        </div>
-      ) : (
-        <DataTable
-          data={filtered}
-          columns={columns}
-          emptyMessage="No conversations found"
-          enableGlobalFilter={false}
-          renderActions={(c) => (
-            <div className="flex gap-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => handleAssign(c)}
-              >
-                Assign
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => navigate({ to: '/conversations/$id', params: { id: c.id } })}
-              >
-                Open
-              </Button>
-            </div>
-          )}
-        />
-      )}
-
-      {/* Activity queue */}
-      <div className="mt-8">
-        <h2 className="text-lg font-semibold text-gray-900 mb-3">
-          Activity queue{' '}
-          {pendingActivities.length > 0 && (
-            <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-              {pendingActivities.length} pending
-            </span>
-          )}
-        </h2>
-        {pendingActivities.length === 0 ? (
-          <div className="bg-white rounded-lg border border-gray-200 p-6 text-center text-gray-500">
-            No pending activities
-          </div>
+      <div className="flex-1 flex flex-col min-w-0 border-r border-gray-200 relative">
+        {selectedId ? (
+          <ConversationThread conversationId={selectedId} />
         ) : (
-          <div className="space-y-2">
-            {pendingActivities.map((a) => (
-              <Card key={a.id} className="p-4 flex items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <AlertCircle className="h-4 w-4 text-amber-500" />
-                    <span className="text-sm font-medium text-gray-900">{a.summary}</span>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {a.next_action || a.type} · {formatTime(a.created_at)}
-                  </p>
-                </div>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => acknowledgeActivity.mutate(a.id)}
-                  disabled={acknowledgeActivity.isPending}
-                >
-                  {acknowledgeActivity.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                  <span className="ml-1">Acknowledge</span>
-                </Button>
-              </Card>
-            ))}
+          <div className="flex-1 flex flex-col items-center justify-center text-gray-400 p-8">
+            <div className="h-16 w-16 rounded-full bg-gray-100 flex items-center justify-center mb-4">
+              <svg
+                className="h-8 w-8 text-gray-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M8 10h.01M12 10h.01M16 10h.01M9 16h6M7 4h10a2 2 0 012 2v12a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 0 012-2z"
+                />
+              </svg>
+            </div>
+            <p className="text-lg font-medium text-gray-600">Select a conversation</p>
+            <p className="text-sm text-gray-500 mt-1">Choose a conversation to view its messages.</p>
           </div>
         )}
       </div>
+
+      {/* Details Panel */}
+      <div
+        className={`bg-white border-l border-gray-200 overflow-y-auto transition-all duration-300 ${
+          detailsCollapsed ? 'w-0 opacity-0 overflow-hidden' : 'w-80 opacity-100'
+        }`}
+      >
+        <div className="relative min-w-[20rem]">
+          <button
+            type="button"
+            onClick={() => setDetailsCollapsed(true)}
+            className="absolute top-2 right-2 z-10 p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
+            aria-label="Collapse conversation details"
+            title="Collapse conversation details"
+          >
+            <PanelRightClose className="h-4 w-4" />
+          </button>
+          <ConversationDetails conversation={conversationData?.conversation || null} />
+        </div>
+      </div>
+
+      {/* Floating expand button when collapsed */}
+      {detailsCollapsed && (
+        <button
+          type="button"
+          onClick={() => setDetailsCollapsed(false)}
+          className="fixed right-3 top-[4.5rem] z-20 p-2 bg-white border border-gray-200 rounded-md shadow-sm text-gray-500 hover:text-gray-700 hover:bg-gray-50 transition-colors"
+          aria-label="Expand conversation details"
+          title="Expand conversation details"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+      )}
     </div>
   )
 }

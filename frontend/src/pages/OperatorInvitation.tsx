@@ -152,7 +152,7 @@ export const OperatorInvitation: React.FC = () => {
   }
 
   const handleFinish = () => {
-    navigate({ to: '/' })
+    navigate({ to: '/inbox' })
   }
 
   return (

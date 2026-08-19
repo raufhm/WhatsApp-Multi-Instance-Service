@@ -103,12 +103,13 @@ export const Team: React.FC = () => {
     try {
       let inv: Invitation
       if (inviteChannel === 'WHATSAPP') {
-        if (!invitePhone.trim()) {
+        const cleaned = invitePhone.replace(/[^\d+]/g, '')
+        if (!cleaned) {
           setInviteError('WhatsApp phone number is required')
           setIsSendingInvite(false)
           return
         }
-        inv = await invitationsApi.createWhatsAppInvitation(invitePhone.trim(), inviteRole)
+        inv = await invitationsApi.createWhatsAppInvitation(cleaned, inviteRole)
       } else {
         if (!inviteEmail.trim()) {
           setInviteError('Email address is required')
@@ -166,14 +167,14 @@ export const Team: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="space-y-5">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <Users className="h-7 w-7 text-primary-600" />
+          <h1 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
+            <Users className="h-6 w-6 text-primary-600" />
             Team & Operator Management
           </h1>
-          <p className="text-sm text-gray-600 mt-0.5">
+          <p className="text-[13px] text-gray-600 mt-0.5">
             Manage operators, dispatch WhatsApp invitations, and oversee TOTP security status.
           </p>
         </div>
@@ -258,19 +259,19 @@ export const Team: React.FC = () => {
               <table className="min-w-full divide-y divide-gray-200 text-sm">
                 <thead className="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   <tr>
-                    <th scope="col" className="px-6 py-3 text-left">Operator</th>
-                    <th scope="col" className="px-6 py-3 text-left">Role</th>
-                    <th scope="col" className="px-6 py-3 text-left">TOTP Security</th>
-                    <th scope="col" className="px-6 py-3 text-left">Last Login</th>
-                    <th scope="col" className="px-6 py-3 text-right">Actions</th>
+                    <th scope="col" className="px-4 py-2 text-left">Operator</th>
+                    <th scope="col" className="px-4 py-2 text-left">Role</th>
+                    <th scope="col" className="px-4 py-2 text-left">TOTP Security</th>
+                    <th scope="col" className="px-4 py-2 text-left">Last Login</th>
+                    <th scope="col" className="px-4 py-2 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {operators.map((op) => (
                     <tr key={op.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-4 py-2.5 whitespace-nowrap">
                         <div className="flex items-center gap-3">
-                          <div className="h-9 w-9 rounded-full bg-primary-100 text-primary-700 font-bold flex items-center justify-center text-sm">
+                          <div className="h-8 w-8 rounded-lg bg-primary-100 text-primary-700 font-bold flex items-center justify-center text-xs">
                             {op.name?.charAt(0) || 'U'}
                           </div>
                           <div>
@@ -280,13 +281,13 @@ export const Team: React.FC = () => {
                         </div>
                       </td>
 
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-4 py-2.5 whitespace-nowrap">
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
                           {op.role}
                         </span>
                       </td>
 
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-4 py-2.5 whitespace-nowrap">
                         {op.totp_setup_required ? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
                             <Clock className="h-3 w-3" /> Setup Required
@@ -302,13 +303,13 @@ export const Team: React.FC = () => {
                         )}
                       </td>
 
-                      <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500">
+                      <td className="px-4 py-2.5 whitespace-nowrap text-xs text-gray-500">
                         {op.last_login_at
                           ? new Date(op.last_login_at).toLocaleString()
                           : 'Never'}
                       </td>
 
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <td className="px-4 py-2.5 whitespace-nowrap text-right">
                         {isAdmin && (
                           <Button
                             type="button"
@@ -368,18 +369,18 @@ export const Team: React.FC = () => {
               <table className="min-w-full divide-y divide-gray-200 text-sm">
                 <thead className="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   <tr>
-                    <th scope="col" className="px-6 py-3 text-left">Recipient</th>
-                    <th scope="col" className="px-6 py-3 text-left">Channel</th>
-                    <th scope="col" className="px-6 py-3 text-left">Role</th>
-                    <th scope="col" className="px-6 py-3 text-left">Status</th>
-                    <th scope="col" className="px-6 py-3 text-left">Created</th>
-                    <th scope="col" className="px-6 py-3 text-right">Actions</th>
+                    <th scope="col" className="px-4 py-2 text-left">Recipient</th>
+                    <th scope="col" className="px-4 py-2 text-left">Channel</th>
+                    <th scope="col" className="px-4 py-2 text-left">Role</th>
+                    <th scope="col" className="px-4 py-2 text-left">Status</th>
+                    <th scope="col" className="px-4 py-2 text-left">Created</th>
+                    <th scope="col" className="px-4 py-2 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {invitations.map((inv) => (
                     <tr key={inv.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-4 py-2.5 whitespace-nowrap">
                         <div className="flex items-center gap-2 font-mono text-xs font-semibold text-gray-900">
                           {inv.invitation_channel === 'WHATSAPP' ? (
                             <Phone className="h-4 w-4 text-green-600" />
@@ -390,17 +391,17 @@ export const Team: React.FC = () => {
                         </div>
                       </td>
 
-                      <td className="px-6 py-4 whitespace-nowrap text-xs">
+                      <td className="px-4 py-2.5 whitespace-nowrap text-xs">
                         <span className="font-semibold text-gray-600">{inv.invitation_channel}</span>
                       </td>
 
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-4 py-2.5 whitespace-nowrap">
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
                           {inv.role}
                         </span>
                       </td>
 
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-4 py-2.5 whitespace-nowrap">
                         <span
                           className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${
                             inv.status === 'PENDING'
@@ -415,11 +416,11 @@ export const Team: React.FC = () => {
                         </span>
                       </td>
 
-                      <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500">
+                      <td className="px-4 py-2.5 whitespace-nowrap text-xs text-gray-500">
                         {new Date(inv.created_at).toLocaleDateString()}
                       </td>
 
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <td className="px-4 py-2.5 whitespace-nowrap text-right">
                         {inv.status === 'PENDING' && (
                           <Button
                             type="button"

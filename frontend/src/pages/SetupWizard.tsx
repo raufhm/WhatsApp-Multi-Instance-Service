@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { useNavigate } from '@tanstack/react-router'
+import { Link } from '@tanstack/react-router'
 import { Card } from '@/components/ui/card'
 import Button from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -24,6 +24,9 @@ import {
   Briefcase,
   AlertCircle,
   Send,
+  Bot,
+  Edit3,
+  ChevronRight,
 } from 'lucide-react'
 
 const STEPS = [
@@ -37,31 +40,30 @@ export const SetupWizard: React.FC = () => {
   const [currentStep, setCurrentStep] = useState(1)
   const [status, setStatus] = useState<TenantSetupStatus | null>(null)
 
-  // Step 1: Business Profile
   const [orgName, setOrgName] = useState('')
   const [businessType, setBusinessType] = useState('Customer Support')
   const [timezone, setTimezone] = useState('UTC+0 (London, GMT)')
   const [supportHours, setSupportHours] = useState('09:00 - 18:00 (Mon - Fri)')
   const [website, setWebsite] = useState('')
+  const [editingProfile, setEditingProfile] = useState(false)
 
-  // Step 2: WhatsApp Connection state
   const [pairedInstance, setPairedInstance] = useState(false)
   const [pairedPhone, setPairedPhone] = useState<string>('')
   const [isPairingOpen, setIsPairingOpen] = useState(false)
 
-  // Step 3: Invite team state
   const [invitePhone, setInvitePhone] = useState('')
   const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteRole, setInviteRole] = useState('OPERATOR')
+  const [inviteRole, setInviteRole] = useState('operator')
   const [invitesSent, setInvitesSent] = useState<string[]>([])
   const [isInviting, setIsInviting] = useState(false)
+  const [editingTeam, setEditingTeam] = useState(false)
 
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [statusError, setStatusError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
 
   const { user } = useAuth()
-  const navigate = useNavigate()
 
   useEffect(() => {
     fetchSetupStatus()
@@ -72,17 +74,58 @@ export const SetupWizard: React.FC = () => {
     try {
       const data = await setupApi.getStatus()
       setStatus(data)
-      if (data.organization_details?.name) {
-        setOrgName(data.organization_details.name)
+
+      if (data.tenant_name) {
+        setOrgName(data.tenant_name)
       }
-      if (data.organization_details?.business_type) {
-        setBusinessType(data.organization_details.business_type)
+      if (data.org_details?.business_type) {
+        setBusinessType(data.org_details.business_type)
       }
-      if (data.current_step && data.current_step > 1 && data.current_step <= 4) {
-        setCurrentStep(data.current_step)
+      if (data.org_details?.timezone) {
+        setTimezone(data.org_details.timezone)
+      }
+      if (data.org_details?.support_hours) {
+        setSupportHours(data.org_details.support_hours)
+      }
+      if (data.org_details?.website) {
+        setWebsite(data.org_details.website)
+      }
+      if (data.setup_step && data.setup_step > 1 && data.setup_step <= 4) {
+        setCurrentStep(data.setup_step)
       }
     } catch (err: any) {
       setStatusError(err?.response?.data?.error || err?.message || 'Failed to load setup status')
+    }
+  }
+
+  const showSuccess = (message: string) => {
+    setSuccess(message)
+    setTimeout(() => setSuccess(null), 3000)
+  }
+
+  const handleSaveProfile = async (e?: React.FormEvent) => {
+    e?.preventDefault()
+    setError(null)
+    setIsLoading(true)
+
+    try {
+      await setupApi.updateSetup({
+        setup_step: status?.is_setup_complete ? status.setup_step || 4 : 2,
+        tenant_name: orgName,
+        org_details: {
+          business_type: businessType,
+          timezone,
+          support_hours: supportHours,
+          website,
+        },
+      })
+      setEditingProfile(false)
+      showSuccess('Business profile updated')
+      await fetchSetupStatus()
+    } catch (err: any) {
+      setError(err?.response?.data?.error || err?.message || 'Failed to save profile')
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -93,11 +136,14 @@ export const SetupWizard: React.FC = () => {
 
     try {
       await setupApi.updateSetup({
-        step: 2,
-        business_type: businessType,
-        timezone,
-        support_hours: supportHours,
-        website,
+        setup_step: 2,
+        tenant_name: orgName,
+        org_details: {
+          business_type: businessType,
+          timezone,
+          support_hours: supportHours,
+          website,
+        },
       })
       setCurrentStep(2)
     } catch (err: any) {
@@ -117,15 +163,17 @@ export const SetupWizard: React.FC = () => {
     setIsInviting(true)
 
     try {
-      if (invitePhone.trim()) {
-        await invitationsApi.createWhatsAppInvitation(invitePhone.trim(), inviteRole)
-        setInvitesSent((prev) => [...prev, `WhatsApp: ${invitePhone} (${inviteRole})`])
+      const cleaned = invitePhone.replace(/[^\d+]/g, '')
+      if (cleaned) {
+        await invitationsApi.createWhatsAppInvitation(cleaned, inviteRole)
+        setInvitesSent((prev) => [...prev, `WhatsApp: ${cleaned} (${inviteRole})`])
         setInvitePhone('')
       } else if (inviteEmail.trim()) {
         await invitationsApi.createEmailInvitation(inviteEmail.trim(), inviteRole)
         setInvitesSent((prev) => [...prev, `Email: ${inviteEmail} (${inviteRole})`])
         setInviteEmail('')
       }
+      showSuccess('Invitation sent')
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'Failed to send invitation')
     } finally {
@@ -139,7 +187,8 @@ export const SetupWizard: React.FC = () => {
 
     try {
       await setupApi.completeSetup()
-      navigate({ to: '/' })
+      showSuccess('Setup completed successfully')
+      await fetchSetupStatus()
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'Failed to complete setup')
     } finally {
@@ -147,25 +196,352 @@ export const SetupWizard: React.FC = () => {
     }
   }
 
-  return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-3xl mx-auto">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center h-12 w-12 rounded-2xl bg-primary-600 text-white shadow-md mb-3">
-            <Sparkles className="h-6 w-6" />
+  const isSetupComplete = Boolean(status?.is_setup_complete || status?.completed)
+
+  const renderBusinessProfileForm = () => (
+    <form onSubmit={isSetupComplete ? handleSaveProfile : handleStep1Submit} className="space-y-4">
+      <div className="space-y-4">
+        <div>
+          <Label htmlFor="wizOrgName">
+            <span className="flex items-center gap-1.5">
+              <Building2 className="h-4 w-4 text-gray-500" /> Organization Name
+            </span>
+          </Label>
+          <Input
+            id="wizOrgName"
+            type="text"
+            value={orgName}
+            onChange={(e) => setOrgName(e.target.value)}
+            required
+            placeholder="Acme Global"
+            className="mt-1"
+          />
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <Label htmlFor="wizBusinessType">
+              <span className="flex items-center gap-1.5">
+                <Briefcase className="h-4 w-4 text-gray-500" /> Business Type
+              </span>
+            </Label>
+            <select
+              id="wizBusinessType"
+              value={businessType}
+              onChange={(e) => setBusinessType(e.target.value)}
+              className="mt-1 block w-full pl-3 pr-10 py-2 text-sm border-gray-300 focus:outline-none focus:ring-primary-500 focus:border-primary-500 rounded-md border"
+            >
+              <option value="Customer Support">Customer Support</option>
+              <option value="E-Commerce / Retail">E-Commerce / Retail</option>
+              <option value="Healthcare / Clinic">Healthcare / Clinic</option>
+              <option value="Financial Services">Financial Services</option>
+              <option value="Logistics & Delivery">Logistics & Delivery</option>
+              <option value="Other">Other</option>
+            </select>
           </div>
-          <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">
-            Tenant Setup Wizard
-          </h1>
-          <p className="mt-1.5 text-sm text-gray-600">
-            {user ? `Welcome, ${user.name}! ` : ''}Let's get your WhatsApp Multi-Instance workspace configured and ready.
-            {status?.is_setup_complete ? ' (Completed)' : ''}
+
+          <div>
+            <Label htmlFor="wizTimezone">
+              <span className="flex items-center gap-1.5">
+                <Clock className="h-4 w-4 text-gray-500" /> Timezone
+              </span>
+            </Label>
+            <select
+              id="wizTimezone"
+              value={timezone}
+              onChange={(e) => setTimezone(e.target.value)}
+              className="mt-1 block w-full pl-3 pr-10 py-2 text-sm border-gray-300 focus:outline-none focus:ring-primary-500 focus:border-primary-500 rounded-md border"
+            >
+              <option value="UTC+0 (London, GMT)">UTC+0 (London, GMT)</option>
+              <option value="UTC-5 (New York, EST)">UTC-5 (New York, EST)</option>
+              <option value="UTC-8 (San Francisco, PST)">UTC-8 (San Francisco, PST)</option>
+              <option value="UTC+1 (Berlin, CET)">UTC+1 (Berlin, CET)</option>
+              <option value="UTC+7 (Jakarta, WIB)">UTC+7 (Jakarta, WIB)</option>
+              <option value="UTC+8 (Singapore, SGT)">UTC+8 (Singapore, SGT)</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <Label htmlFor="wizSupportHours">Support Operating Hours</Label>
+            <Input
+              id="wizSupportHours"
+              type="text"
+              value={supportHours}
+              onChange={(e) => setSupportHours(e.target.value)}
+              placeholder="09:00 - 18:00 (Mon - Fri)"
+              className="mt-1"
+            />
+          </div>
+
+          <div>
+            <Label htmlFor="wizWebsite">
+              <span className="flex items-center gap-1.5">
+                <Globe className="h-4 w-4 text-gray-500" /> Website (Optional)
+              </span>
+            </Label>
+            <Input
+              id="wizWebsite"
+              type="url"
+              value={website}
+              onChange={(e) => setWebsite(e.target.value)}
+              placeholder="https://example.com"
+              className="mt-1"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="pt-4 flex justify-end gap-2">
+        {isSetupComplete && (
+          <Button type="button" variant="ghost" size="md" onClick={() => setEditingProfile(false)} disabled={isLoading}>
+            Cancel
+          </Button>
+        )}
+        <Button type="submit" variant="primary" size="md" disabled={isLoading} className="group">
+          <span>{isSetupComplete ? 'Save Changes' : 'Save & Continue'}</span>
+          <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
+        </Button>
+      </div>
+    </form>
+  )
+
+  const renderBusinessProfileCard = () => (
+    <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Building2 className="h-5 w-5 text-primary-600" />
+          <h3 className="text-sm font-semibold text-gray-900">Business Profile</h3>
+        </div>
+        <Button type="button" variant="ghost" size="sm" onClick={() => setEditingProfile(true)} className="gap-1">
+          <Edit3 className="h-3.5 w-3.5" /> Edit
+        </Button>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+        <div>
+          <span className="text-gray-500 text-xs">Organization Name</span>
+          <p className="font-medium text-gray-900">{orgName || '-'}</p>
+        </div>
+        <div>
+          <span className="text-gray-500 text-xs">Business Type</span>
+          <p className="font-medium text-gray-900">{businessType}</p>
+        </div>
+        <div>
+          <span className="text-gray-500 text-xs">Timezone</span>
+          <p className="font-medium text-gray-900">{timezone}</p>
+        </div>
+        <div>
+          <span className="text-gray-500 text-xs">Support Hours</span>
+          <p className="font-medium text-gray-900">{supportHours}</p>
+        </div>
+        <div>
+          <span className="text-gray-500 text-xs">Website</span>
+          <p className="font-medium text-gray-900">{website || '-'}</p>
+        </div>
+      </div>
+    </div>
+  )
+
+  const renderWhatsAppCard = () => (
+    <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Smartphone className="h-5 w-5 text-primary-600" />
+          <h3 className="text-sm font-semibold text-gray-900">WhatsApp Connection</h3>
+        </div>
+        {status?.has_whatsapp_account ? (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 px-2 py-1 rounded-full">
+            <CheckCircle2 className="h-3.5 w-3.5" /> Connected
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 px-2 py-1 rounded-full">
+            Not connected
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-gray-600">
+        {status?.has_whatsapp_account
+          ? 'Your WhatsApp account is connected and ready to receive messages.'
+          : 'No WhatsApp account connected yet. Pair a device to start receiving messages.'}
+      </p>
+      <Button type="button" variant="secondary" size="sm" onClick={() => setIsPairingOpen(true)} className="gap-1.5">
+        <QrCode className="h-4 w-4" />
+        <span>{status?.has_whatsapp_account ? 'Pair Another Device' : 'Pair Device Now'}</span>
+      </Button>
+    </div>
+  )
+
+  const renderTeamCard = () => (
+    <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Users className="h-5 w-5 text-primary-600" />
+          <h3 className="text-sm font-semibold text-gray-900">Team Members</h3>
+        </div>
+        <span className="text-xs text-gray-500">{status?.team_count || 0} non-admin members</span>
+      </div>
+      {(status?.team_count || 0) > 0 && (
+        <p className="text-xs text-gray-600">Your team already has members. You can invite more below or continue.</p>
+      )}
+      {!editingTeam ? (
+        <Button type="button" variant="secondary" size="sm" onClick={() => setEditingTeam(true)} className="gap-1.5">
+          <Users className="h-4 w-4" /> Invite Team Member
+        </Button>
+      ) : (
+        <div className="space-y-3 pt-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <PhoneInput
+              id="wizInvitePhone"
+              label="WhatsApp Number (Recommended)"
+              value={invitePhone}
+              onChange={setInvitePhone}
+              placeholder="+14155552671"
+            />
+            <div>
+              <Label htmlFor="wizInviteEmail">Email Fallback</Label>
+              <Input
+                id="wizInviteEmail"
+                type="email"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="operator@example.com"
+                className="mt-1.5"
+              />
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="wizRole" className="text-xs text-gray-600">Role:</Label>
+              <select
+                id="wizRole"
+                value={inviteRole}
+                onChange={(e) => setInviteRole(e.target.value)}
+                className="text-xs border-gray-300 rounded border px-2 py-1 bg-white"
+              >
+                <option value="OPERATOR">Operator</option>
+                <option value="ADMIN">Admin</option>
+                <option value="VIEWER">Viewer</option>
+              </select>
+            </div>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={handleSendInvite}
+              disabled={isInviting || (!invitePhone.trim() && !inviteEmail.trim())}
+            >
+              {isInviting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-3.5 w-3.5 mr-1.5" />}
+              Send Invite
+            </Button>
+          </div>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setEditingTeam(false)}>
+            Cancel
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+
+  const renderBotCard = () => (
+    <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Bot className="h-5 w-5 text-primary-600" />
+          <h3 className="text-sm font-semibold text-gray-900">Bot Rules</h3>
+        </div>
+        {status?.has_bot_rules ? (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 px-2 py-1 rounded-full">
+            <CheckCircle2 className="h-3.5 w-3.5" /> Configured
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 px-2 py-1 rounded-full">
+            Not configured
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-gray-600">
+        {status?.has_bot_rules
+          ? 'Bot rules are already configured for this tenant.'
+          : 'No bot rules configured. You can set them up from the Bot Rules page.'}
+      </p>
+      <Link to="/bot-rules" className="inline-flex items-center gap-1.5 text-xs font-medium text-primary-600 hover:text-primary-700">
+        Manage Bot Rules <ChevronRight className="h-3.5 w-3.5" />
+      </Link>
+    </div>
+  )
+
+  if (isSetupComplete && status) {
+    return (
+      <div className="min-h-screen bg-gray-50 py-10 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-3xl mx-auto space-y-6">
+          <div className="text-center">
+            <div className="inline-flex items-center justify-center h-10 w-10 rounded-2xl bg-green-600 text-white shadow-md mb-3">
+              <CheckCircle2 className="h-5 w-5" />
+            </div>
+            <h1 className="text-xl font-semibold text-gray-900 tracking-tight">Tenant Setup</h1>
+            <p className="mt-1 text-[13px] text-gray-600">Your workspace is configured. Review or edit settings below.</p>
+          </div>
+
+          {statusError && (
+            <div className="flex items-start justify-between gap-4 p-3.5 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
+                <span>{statusError}</span>
+              </div>
+              <Button variant="primary" size="sm" onClick={fetchSetupStatus} disabled={isLoading}>
+                Retry
+              </Button>
+            </div>
+          )}
+          {error && (
+            <div className="flex items-start gap-2 p-3.5 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
+              <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </div>
+          )}
+          {success && (
+            <div className="flex items-center gap-2 p-3.5 rounded-lg bg-green-50 border border-green-200 text-sm text-green-700">
+              <CheckCircle2 className="h-5 w-5 text-green-500" />
+              <span>{success}</span>
+            </div>
+          )}
+
+          <Card className="p-5 shadow-md space-y-5">
+            {editingProfile ? renderBusinessProfileForm() : renderBusinessProfileCard()}
+            {renderWhatsAppCard()}
+            {renderTeamCard()}
+            {renderBotCard()}
+          </Card>
+        </div>
+
+        <PairingModal
+          isOpen={isPairingOpen}
+          onClose={() => setIsPairingOpen(false)}
+          onSuccess={(phone) => {
+            setPairedInstance(true)
+            setPairedPhone(phone)
+            fetchSetupStatus()
+          }}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 py-10 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-3xl mx-auto">
+        <div className="text-center mb-6">
+          <div className="inline-flex items-center justify-center h-10 w-10 rounded-2xl bg-primary-600 text-white shadow-md mb-3">
+            <Sparkles className="h-5 w-5" />
+          </div>
+          <h1 className="text-xl font-semibold text-gray-900 tracking-tight">Tenant Setup Wizard</h1>
+          <p className="mt-1 text-[13px] text-gray-600">
+            {user ? `Welcome, ${user.name}! ` : ''}Let's get your whops workspace configured and ready.
           </p>
         </div>
 
-        {/* Multi-step progress indicator */}
-        <div className="mb-8">
+        <div className="mb-6">
           <div className="flex items-center justify-between relative">
             <div className="absolute left-0 top-1/2 -translate-y-1/2 h-0.5 bg-gray-200 w-full -z-0" />
             {STEPS.map((step) => {
@@ -199,7 +575,7 @@ export const SetupWizard: React.FC = () => {
           </div>
         </div>
 
-        <Card className="p-6 sm:p-8 shadow-md">
+        <Card className="p-5 shadow-md">
           {statusError && (
             <div className="mb-6 flex items-start justify-between gap-4 p-3.5 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
               <div className="flex items-start gap-2">
@@ -217,124 +593,29 @@ export const SetupWizard: React.FC = () => {
               <span>{error}</span>
             </div>
           )}
+          {success && (
+            <div className="mb-6 flex items-center gap-2 p-3.5 rounded-lg bg-green-50 border border-green-200 text-sm text-green-700">
+              <CheckCircle2 className="h-5 w-5 text-green-500" />
+              <span>{success}</span>
+            </div>
+          )}
 
-          {/* STEP 1: Organization & Business Details */}
           {currentStep === 1 && (
-            <form onSubmit={handleStep1Submit} className="space-y-5">
+            <div className="space-y-5">
               <div>
-                <h2 className="text-xl font-bold text-gray-900">Step 1: Business Profile Details</h2>
+                <h2 className="text-lg font-semibold text-gray-900">Step 1: Business Profile Details</h2>
                 <p className="text-xs text-gray-500 mt-1">
                   Configure primary operational settings for your tenant instance.
                 </p>
               </div>
-
-              <div className="space-y-4">
-                <div>
-                  <Label htmlFor="wizOrgName">
-                    <span className="flex items-center gap-1.5">
-                      <Building2 className="h-4 w-4 text-gray-500" /> Organization Name
-                    </span>
-                  </Label>
-                  <Input
-                    id="wizOrgName"
-                    type="text"
-                    value={orgName}
-                    onChange={(e) => setOrgName(e.target.value)}
-                    required
-                    placeholder="Acme Global"
-                    className="mt-1"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="wizBusinessType">
-                      <span className="flex items-center gap-1.5">
-                        <Briefcase className="h-4 w-4 text-gray-500" /> Business Type
-                      </span>
-                    </Label>
-                    <select
-                      id="wizBusinessType"
-                      value={businessType}
-                      onChange={(e) => setBusinessType(e.target.value)}
-                      className="mt-1 block w-full pl-3 pr-10 py-2 text-sm border-gray-300 focus:outline-none focus:ring-primary-500 focus:border-primary-500 rounded-md border"
-                    >
-                      <option value="Customer Support">Customer Support</option>
-                      <option value="E-Commerce / Retail">E-Commerce / Retail</option>
-                      <option value="Healthcare / Clinic">Healthcare / Clinic</option>
-                      <option value="Financial Services">Financial Services</option>
-                      <option value="Logistics & Delivery">Logistics & Delivery</option>
-                      <option value="Other">Other</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="wizTimezone">
-                      <span className="flex items-center gap-1.5">
-                        <Clock className="h-4 w-4 text-gray-500" /> Timezone
-                      </span>
-                    </Label>
-                    <select
-                      id="wizTimezone"
-                      value={timezone}
-                      onChange={(e) => setTimezone(e.target.value)}
-                      className="mt-1 block w-full pl-3 pr-10 py-2 text-sm border-gray-300 focus:outline-none focus:ring-primary-500 focus:border-primary-500 rounded-md border"
-                    >
-                      <option value="UTC+0 (London, GMT)">UTC+0 (London, GMT)</option>
-                      <option value="UTC-5 (New York, EST)">UTC-5 (New York, EST)</option>
-                      <option value="UTC-8 (San Francisco, PST)">UTC-8 (San Francisco, PST)</option>
-                      <option value="UTC+1 (Berlin, CET)">UTC+1 (Berlin, CET)</option>
-                      <option value="UTC+7 (Jakarta, WIB)">UTC+7 (Jakarta, WIB)</option>
-                      <option value="UTC+8 (Singapore, SGT)">UTC+8 (Singapore, SGT)</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="wizSupportHours">Support Operating Hours</Label>
-                    <Input
-                      id="wizSupportHours"
-                      type="text"
-                      value={supportHours}
-                      onChange={(e) => setSupportHours(e.target.value)}
-                      placeholder="09:00 - 18:00 (Mon - Fri)"
-                      className="mt-1"
-                    />
-                  </div>
-
-                  <div>
-                    <Label htmlFor="wizWebsite">
-                      <span className="flex items-center gap-1.5">
-                        <Globe className="h-4 w-4 text-gray-500" /> Website (Optional)
-                      </span>
-                    </Label>
-                    <Input
-                      id="wizWebsite"
-                      type="url"
-                      value={website}
-                      onChange={(e) => setWebsite(e.target.value)}
-                      placeholder="https://example.com"
-                      className="mt-1"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="pt-4 flex justify-end">
-                <Button type="submit" variant="primary" size="md" disabled={isLoading} className="group">
-                  <span>Save & Continue</span>
-                  <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
-                </Button>
-              </div>
-            </form>
+              {renderBusinessProfileForm()}
+            </div>
           )}
 
-          {/* STEP 2: WhatsApp Connection Guidance */}
           {currentStep === 2 && (
-            <div className="space-y-6">
+            <div className="space-y-5">
               <div>
-                <h2 className="text-xl font-bold text-gray-900">Step 2: Connect WhatsApp Instance</h2>
+                <h2 className="text-lg font-semibold text-gray-900">Step 2: Connect WhatsApp Instance</h2>
                 <p className="text-xs text-gray-500 mt-1">
                   Pair your WhatsApp Business or personal number with our multi-instance backend engine.
                 </p>
@@ -420,15 +701,21 @@ export const SetupWizard: React.FC = () => {
             </div>
           )}
 
-          {/* STEP 3: Team Invitations */}
           {currentStep === 3 && (
-            <div className="space-y-6">
+            <div className="space-y-5">
               <div>
-                <h2 className="text-xl font-bold text-gray-900">Step 3: Invite Team Members</h2>
+                <h2 className="text-lg font-semibold text-gray-900">Step 3: Invite Team Members</h2>
                 <p className="text-xs text-gray-500 mt-1">
                   Send WhatsApp or Email setup invitations with instant TOTP onboarding.
                 </p>
               </div>
+
+              {(status?.team_count || 0) > 0 && (
+                <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700">
+                  <span className="font-semibold">Your team already has {status?.team_count} non-admin member(s).</span>{' '}
+                  You can invite more below or continue.
+                </div>
+              )}
 
               <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -453,7 +740,7 @@ export const SetupWizard: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-2">
+                <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Label htmlFor="wizRole" className="text-xs text-gray-600">
                       Role:
@@ -464,9 +751,9 @@ export const SetupWizard: React.FC = () => {
                       onChange={(e) => setInviteRole(e.target.value)}
                       className="text-xs border-gray-300 rounded border px-2 py-1 bg-white"
                     >
-                      <option value="OPERATOR">Operator</option>
-                      <option value="ADMIN">Admin</option>
-                      <option value="VIEWER">Viewer</option>
+                      <option value="operator">Operator</option>
+                      <option value="admin">Admin</option>
+                      <option value="viewer">Viewer</option>
                     </select>
                   </div>
 
@@ -518,16 +805,15 @@ export const SetupWizard: React.FC = () => {
             </div>
           )}
 
-          {/* STEP 4: Completion & Launch */}
           {currentStep === 4 && (
-            <div className="text-center py-6 space-y-6">
+            <div className="text-center py-5 space-y-5">
               <div className="inline-flex items-center justify-center h-16 w-16 rounded-full bg-green-100 text-green-600 shadow-inner">
                 <CheckCircle2 className="h-10 w-10" />
               </div>
 
               <div>
-                <h2 className="text-2xl font-extrabold text-gray-900">Setup Ready to Complete!</h2>
-                <p className="text-sm text-gray-600 mt-1 max-w-md mx-auto">
+                <h2 className="text-xl font-semibold text-gray-900">Setup Ready to Complete!</h2>
+                <p className="text-[13px] text-gray-600 mt-1 max-w-md mx-auto">
                   Your organization <strong>{orgName}</strong> is configured with passwordless TOTP security
                   and is ready to manage WhatsApp traffic.
                 </p>

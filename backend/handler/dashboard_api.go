@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/raufhm/whatsapp-testing/domain"
+	"github.com/raufhm/whatsapp-testing/internal/broadcast"
 	"github.com/raufhm/whatsapp-testing/internal/storage"
 	"github.com/raufhm/whatsapp-testing/whatsapp"
 )
@@ -24,6 +25,8 @@ type DashboardAPIHandler struct {
 	Auth        dashboardAuth
 	MediaStore  storage.MediaStore
 	S3ObjectURL string
+	Monitor     domain.MonitoringStore
+	Broadcaster *broadcast.Broadcaster
 }
 
 // pairingService defines the pairing manager capabilities required by the dashboard.
@@ -37,6 +40,8 @@ type pairingService interface {
 type accountManager interface {
 	ListInstances() []domain.InstanceInfo
 	GetInstance(host string) (domain.InstanceInfo, error)
+	Disconnect(host string) error
+	Reconnect(host string) error
 }
 
 // dashboardDataStore exposes dashboard-only data access.
@@ -59,6 +64,18 @@ func (d *DashboardAPIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		d.listAccounts(w, r, tenantID)
+		return
+	case strings.HasPrefix(path, "/dashboard/api/accounts/") && strings.HasSuffix(path, "/disconnect") && r.Method == http.MethodPost:
+		if !d.requirePermission(w, r, tenantID, PermManageAccounts) {
+			return
+		}
+		d.disconnectAccount(w, r, tenantID)
+		return
+	case strings.HasPrefix(path, "/dashboard/api/accounts/") && strings.HasSuffix(path, "/reconnect") && r.Method == http.MethodPost:
+		if !d.requirePermission(w, r, tenantID, PermManageAccounts) {
+			return
+		}
+		d.reconnectAccount(w, r, tenantID)
 		return
 	case (path == "/dashboard/api/accounts" || path == "/dashboard/api/pairing") && r.Method == http.MethodPost:
 		if !d.requirePermission(w, r, tenantID, PermManageAccounts) {
@@ -110,6 +127,42 @@ func (d *DashboardAPIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		d.createOperator(w, r, tenantID)
+		return
+	case path == "/dashboard/api/monitoring/status" && r.Method == http.MethodGet:
+		if !d.requirePermission(w, r, tenantID, PermViewAccounts) {
+			return
+		}
+		d.monitoringStatus(w, r, tenantID)
+		return
+	case path == "/dashboard/api/monitoring/status-events" && r.Method == http.MethodGet:
+		if !d.requirePermission(w, r, tenantID, PermViewAccounts) {
+			return
+		}
+		d.monitoringStatusEvents(w, r, tenantID)
+		return
+	case path == "/dashboard/api/monitoring/metrics" && r.Method == http.MethodGet:
+		if !d.requirePermission(w, r, tenantID, PermViewAccounts) {
+			return
+		}
+		d.monitoringMetrics(w, r, tenantID)
+		return
+	case path == "/dashboard/api/monitoring/events" && r.Method == http.MethodGet:
+		if !d.requirePermission(w, r, tenantID, PermViewAccounts) {
+			return
+		}
+		d.monitoringEvents(w, r, tenantID)
+		return
+	case path == "/dashboard/api/monitoring/queue-depth" && r.Method == http.MethodGet:
+		if !d.requirePermission(w, r, tenantID, PermViewAccounts) {
+			return
+		}
+		d.monitoringQueueDepth(w, r, tenantID)
+		return
+	case path == "/dashboard/api/monitoring/stream" && r.Method == http.MethodGet:
+		if !d.requirePermission(w, r, tenantID, PermViewAccounts) {
+			return
+		}
+		d.monitoringStream(w, r, tenantID)
 		return
 	}
 	writeAPIError(w, 404, "NOT_FOUND", "dashboard api endpoint not found")
@@ -181,6 +234,48 @@ func (d *DashboardAPIHandler) listAccounts(w http.ResponseWriter, r *http.Reques
 		})
 	}
 	WriteJSON(w, 200, result)
+}
+
+func (d *DashboardAPIHandler) accountAction(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID, action func(host string) error) bool {
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) < 4 {
+		writeAPIError(w, 404, "NOT_FOUND", "invalid account path")
+		return false
+	}
+	accountID, err := uuid.Parse(parts[3])
+	if err != nil {
+		writeAPIError(w, 400, "INVALID_ID", "invalid account id")
+		return false
+	}
+	account, err := d.Platform.GetAccount(tenantID, accountID)
+	if err != nil {
+		writeAPIError(w, 404, "NOT_FOUND", "account not found")
+		return false
+	}
+	if err := action(account.HostID); err != nil {
+		writeAPIError(w, 500, "INTERNAL_ERROR", err.Error())
+		return false
+	}
+
+	// Re-read instance state after the action so the response reflects the
+	// current connection status.
+	info, err := d.Manager.GetInstance(account.HostID)
+	isConnected := err == nil && info.IsConnected
+	WriteJSON(w, 200, accountWithHealth{
+		WhatsAppAccount: account,
+		Health:          "",
+		IsConnected:     isConnected,
+		QueueSize:       0,
+	})
+	return true
+}
+
+func (d *DashboardAPIHandler) disconnectAccount(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
+	d.accountAction(w, r, tenantID, d.Manager.Disconnect)
+}
+
+func (d *DashboardAPIHandler) reconnectAccount(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID) {
+	d.accountAction(w, r, tenantID, d.Manager.Reconnect)
 }
 
 func (d *DashboardAPIHandler) pairingService() pairingService {
@@ -268,6 +363,9 @@ func (d *DashboardAPIHandler) listBotRules(w http.ResponseWriter, r *http.Reques
 		writeAPIError(w, 500, "INTERNAL_ERROR", "failed to list bot rules")
 		return
 	}
+	if sets == nil {
+		sets = []domain.BotRuleSet{}
+	}
 	WriteJSON(w, 200, sets)
 }
 
@@ -317,6 +415,9 @@ func (d *DashboardAPIHandler) listUploadJobs(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		writeAPIError(w, 500, "INTERNAL_ERROR", "failed to list upload jobs")
 		return
+	}
+	if jobs == nil {
+		jobs = []domain.UploadJob{}
 	}
 	WriteJSON(w, 200, jobs)
 }

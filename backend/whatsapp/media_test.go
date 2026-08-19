@@ -11,11 +11,11 @@ import (
 
 func TestParseMessageContent(t *testing.T) {
 	tests := []struct {
-		name               string
-		msg                *waE2E.Message
-		expectedContent    string
-		expectedType       domain.MessageType
-		expectedTarget     string
+		name            string
+		msg             *waE2E.Message
+		expectedContent string
+		expectedType    domain.MessageType
+		expectedTarget  string
 	}{
 		{
 			name:            "plain text conversation",

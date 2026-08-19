@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"io/fs"
 	"log"
@@ -310,6 +311,7 @@ func (d *DashboardHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 type loginRequest struct {
 	TenantID   string `json:"tenant_id"`
+	TenantSlug string `json:"tenant_slug"`
 	Identifier string `json:"identifier"`
 	Email      string `json:"email"`
 	Whatsapp   string `json:"whatsapp_number"`
@@ -319,6 +321,39 @@ type loginRequest struct {
 	RememberMe bool   `json:"remember_me"`
 }
 
+var errTenantRequired = errors.New("tenant identifier is required")
+
+func (d *DashboardHandler) resolveTenant(r *http.Request, explicitID, explicitSlug string) (domain.Tenant, error) {
+	tenantStr := strings.TrimSpace(explicitSlug)
+	if tenantStr == "" {
+		tenantStr = strings.TrimSpace(explicitID)
+	}
+	if tenantStr == "" {
+		tenantStr = strings.TrimSpace(r.Header.Get("X-Tenant-Slug"))
+	}
+	if tenantStr == "" {
+		tenantStr = strings.TrimSpace(r.Header.Get("X-Tenant"))
+	}
+	if tenantStr == "" {
+		return domain.Tenant{}, errTenantRequired
+	}
+
+	// If it parses as a UUID, attempt to look it up by ID first
+	if parsedUUID, err := uuid.Parse(tenantStr); err == nil {
+		tenant, err := d.Auth.GetTenantByID(parsedUUID)
+		if err == nil {
+			return tenant, nil
+		}
+	}
+
+	// Look up by slug
+	tenant, err := d.Auth.FindTenantBySlug(tenantStr)
+	if err != nil {
+		return domain.Tenant{}, err
+	}
+	return tenant, nil
+}
+
 func (d *DashboardHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
 	if err := DecodeJSONBody(r, &req); err != nil {
@@ -326,13 +361,13 @@ func (d *DashboardHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenantStr := req.TenantID
-	if tenantStr == "" {
-		tenantStr = r.Header.Get("X-Tenant")
-	}
-	tenantID, err := uuid.Parse(tenantStr)
+	tenant, err := d.resolveTenant(r, req.TenantID, req.TenantSlug)
 	if err != nil {
-		writeAPIError(w, 400, "TENANT_REQUIRED", "tenant ID is required")
+		if errors.Is(err, errTenantRequired) {
+			writeAPIError(w, 400, "TENANT_REQUIRED", "tenant ID or company name is required")
+			return
+		}
+		writeAPIError(w, 401, "INVALID_CREDENTIALS", "invalid credentials")
 		return
 	}
 
@@ -354,7 +389,7 @@ func (d *DashboardHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	op, plainSecret, hash, err := d.Auth.FindOperatorByIdentifier(tenantID, identifier)
+	op, plainSecret, hash, err := d.Auth.FindOperatorByIdentifier(tenant.ID, identifier)
 	if err != nil {
 		writeAPIError(w, 401, "INVALID_CREDENTIALS", "invalid credentials")
 		return
@@ -388,7 +423,7 @@ func (d *DashboardHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		ttl = 30 * 24 * time.Hour
 	}
 
-	session, err := d.Auth.CreateSession(op.ID, tenantID, ttl)
+	session, err := d.Auth.CreateSession(op.ID, tenant.ID, ttl)
 	if err != nil {
 		writeAPIError(w, 500, "INTERNAL_ERROR", "could not create session")
 		return
@@ -404,7 +439,13 @@ func (d *DashboardHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   int(ttl.Seconds()),
 	})
 
-	WriteJSON(w, 200, map[string]any{"user": op, "session_id": session.ID})
+	WriteJSON(w, 200, map[string]any{
+		"user":        op,
+		"session_id":  session.ID,
+		"tenant_id":   tenant.ID,
+		"tenant_slug": tenant.Slug,
+		"tenant_name": tenant.Name,
+	})
 }
 
 func (d *DashboardHandler) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -472,7 +513,18 @@ func (d *DashboardHandler) handleMeWithOp(w http.ResponseWriter, r *http.Request
 		writeAPIError(w, 500, "INTERNAL_ERROR", "could not load operator")
 		return
 	}
-	WriteJSON(w, 200, map[string]any{"user": full, "tenant_id": op.TenantID})
+	tenantName := ""
+	tenantSlug := ""
+	if tenant, err := d.Auth.GetTenantByID(op.TenantID); err == nil {
+		tenantName = tenant.Name
+		tenantSlug = tenant.Slug
+	}
+	WriteJSON(w, 200, map[string]any{
+		"user":        full,
+		"tenant_id":   op.TenantID,
+		"tenant_slug": tenantSlug,
+		"tenant_name": tenantName,
+	})
 }
 
 // Logger is kept for clarity; replace with the project logger if needed.

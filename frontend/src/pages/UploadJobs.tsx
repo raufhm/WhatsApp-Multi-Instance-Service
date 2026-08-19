@@ -26,7 +26,8 @@ const statusBadge = (status: string) => {
 
 const UploadJobs: React.FC = () => {
   const [status, setStatus] = useState('')
-  const { data: jobs = [], isLoading, isError, refetch } = useUploadJobs(status || undefined)
+  const { data: jobsData, isLoading, isError, refetch } = useUploadJobs(status || undefined)
+  const jobs = jobsData ?? []
 
   const columns: ColumnDef<UploadJob, any>[] = useMemo(() => {
     const helper = createColumnHelper<UploadJob>()
@@ -61,17 +62,17 @@ const UploadJobs: React.FC = () => {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Upload Jobs</h1>
-          <p className="text-sm text-gray-600">Monitor outgoing media uploads retries and failures</p>
+          <h1 className="text-xl font-semibold text-gray-900">Upload Jobs</h1>
+          <p className="text-[13px] text-gray-600">Monitor outgoing media uploads retries and failures</p>
         </div>
         <Button variant="secondary" size="sm" onClick={() => refetch()}>
           Refresh
         </Button>
       </div>
 
-      <Card className="p-4 mb-6">
+      <Card className="p-4 mb-5">
         <select
           className="form-control max-w-[200px]"
           value={status}

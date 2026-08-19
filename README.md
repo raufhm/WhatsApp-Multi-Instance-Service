@@ -1,7 +1,8 @@
 # WhatsApp Multi-Instance Service
 
-An API-first conversation platform built on top of [whatsmeow](https://github.com/tulir/whatsmeow).  
-Link personal/business WhatsApp numbers to the service; every inbound and outbound message is stored against a contact and ticketed conversation; a deterministic bot handles initial exchanges; completed sessions produce acknowledgeable follow-up activities for customer service teams.
+whops lets small business teams share WhatsApp access without Meta Business API complexity. Connect your existing WhatsApp (personal or Business app) via QR code, track customer conversations with built-in notes and follow-ups, and collaborate with your team — no developer required.
+
+Built on top of [whatsmeow](https://github.com/tulir/whatsmeow), this platform stores every message against contacts and conversations, runs a deterministic bot for initial exchanges, and creates follow-up activities for customer service teams.
 
 > **Disclaimer:** Personal portfolio project built for research and development. Using linked WhatsApp accounts (QR-paired) may violate WhatsApp's Terms of Service. Run at your own risk.
 

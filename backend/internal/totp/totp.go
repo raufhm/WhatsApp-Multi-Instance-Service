@@ -28,7 +28,7 @@ const (
 	defaultKeyString = "whatsapp-multi-instance-totp-key-32b!"
 	Period           = 30
 	Digits           = 6
-	Issuer           = "WhatsApp Multi-Instance Service"
+	Issuer           = "whops"
 	AccountPrefix    = Issuer
 )
 

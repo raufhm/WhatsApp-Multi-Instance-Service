@@ -1,0 +1,2 @@
+-- Reversible only in a broad sense: we cannot know which rows were personal
+-- before the backfill, so this migration intentionally leaves the data untouched.

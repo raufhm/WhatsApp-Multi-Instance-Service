@@ -15,7 +15,8 @@ const defaultRule = {
 }
 
 const BotRules: React.FC = () => {
-  const { data: ruleSets = [], isLoading, isError, refetch } = useDashboardBotRules()
+  const { data: ruleSetsData, isLoading, isError, refetch } = useDashboardBotRules()
+  const ruleSets = ruleSetsData ?? []
   const create = useCreateBotRuleSet()
   const activate = useActivateBotRuleSet()
   const [draft, setDraft] = useState([{ ...defaultRule }])
@@ -59,10 +60,10 @@ const BotRules: React.FC = () => {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Bot Rules</h1>
-          <p className="text-sm text-gray-600">Manage conversation bot rules and versions</p>
+          <h1 className="text-xl font-semibold text-gray-900">Bot Rules</h1>
+          <p className="text-[13px] text-gray-600">Manage conversation bot rules and versions</p>
         </div>
         <Button variant="secondary" size="sm" onClick={() => refetch()}>
           <RotateCcw className="h-4 w-4 mr-1" /> Refresh
@@ -82,7 +83,7 @@ const BotRules: React.FC = () => {
           </Button>
         </div>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-5">
           <Card className="p-4">
             <h2 className="text-lg font-medium text-gray-900 mb-3 flex items-center gap-2">
               <Bot className="h-5 w-5" /> Versions
@@ -104,7 +105,7 @@ const BotRules: React.FC = () => {
                     {ruleSets.map((s) => (
                       <tr key={s.id}>
                         <td className="px-4 py-2 text-sm text-gray-900">{s.version}</td>
-                        <td className="px-4 py-2 text-sm text-gray-500">{s.rules.length}</td>
+                        <td className="px-4 py-2 text-sm text-gray-500">{(s.rules ?? []).length}</td>
                         <td className="px-4 py-2">
                           {s.is_active ? (
                             <span className="flex items-center text-green-600 text-sm font-medium">

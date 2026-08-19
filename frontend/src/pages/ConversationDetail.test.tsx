@@ -96,6 +96,65 @@ describe('ConversationDetail media support', () => {
     const docLink = screen.getByText('View attachment')
     expect(docLink).toBeInTheDocument()
     expect(docLink.getAttribute('href')).toBe('/dashboard/api/media/media/invoice.pdf')
+
+    // Operator indicator rendered
+    expect(screen.getByText('Operator')).toBeInTheDocument()
+  })
+
+  it('renders named operator indicator for outgoing messages', () => {
+    vi.spyOn(useInboxModule, 'useConversation').mockReturnValue({
+      data: {
+        conversation: {
+          id: 'conv-123',
+          tenant_id: 'tenant-1',
+          account_id: 'acc-1',
+          contact_id: 'contact-1',
+          ticket_number: 42,
+          status: 'OPEN',
+          bot_state: '',
+          started_at: new Date().toISOString(),
+          last_activity_at: new Date().toISOString(),
+          closed_at: null,
+          handoff_at: null,
+          closure_reason: null,
+          assignee: 'John Doe',
+          merged_into_id: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        messages: [
+          {
+            id: 'msg-op',
+            tenant_id: 'tenant-1',
+            conversation_id: 'conv-123',
+            actor: 'OPERATOR',
+            operator_name: 'John Doe',
+            provider: 'whatsmeow',
+            provider_message_id: 'p-3',
+            direction: 'OUTGOING',
+            content: 'How can I help you today?',
+            message_type: 'TEXT',
+            media_url: '',
+            status: 'SENT',
+            provider_timestamp: new Date().toISOString(),
+            is_internal: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+    } as any)
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ConversationDetail />
+      </QueryClientProvider>
+    )
+
+    expect(screen.getByText('John Doe')).toBeInTheDocument()
+    expect(screen.getByText('How can I help you today?')).toBeInTheDocument()
   })
 
   it('handles paperclip file selection and attachment upload', async () => {
@@ -167,5 +226,135 @@ describe('ConversationDetail media support', () => {
     await waitFor(() => {
       expect(screen.getByText('test-image.png')).toBeInTheDocument()
     })
+  })
+
+  it('renders group display name and message status checkmarks', () => {
+    vi.spyOn(useInboxModule, 'useConversation').mockReturnValue({
+      data: {
+        conversation: {
+          id: 'conv-group-1',
+          tenant_id: 'tenant-1',
+          account_id: 'acc-1',
+          contact_id: 'contact-group',
+          contact_name: 'Project Alpha Team',
+          contact_number: '12036302@g.us',
+          is_group: true,
+          ticket_number: 88,
+          status: 'OPEN',
+          bot_state: '',
+          started_at: new Date().toISOString(),
+          last_activity_at: new Date().toISOString(),
+          closed_at: null,
+          handoff_at: null,
+          closure_reason: null,
+          assignee: 'Alice',
+          merged_into_id: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        messages: [
+          {
+            id: 'msg-pending',
+            tenant_id: 'tenant-1',
+            conversation_id: 'conv-group-1',
+            actor: 'OPERATOR',
+            provider: 'whatsmeow',
+            provider_message_id: '',
+            direction: 'OUTGOING',
+            content: 'Sending update...',
+            message_type: 'TEXT',
+            media_url: '',
+            status: 'PENDING',
+            provider_timestamp: new Date().toISOString(),
+            is_internal: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+          {
+            id: 'msg-delivered',
+            tenant_id: 'tenant-1',
+            conversation_id: 'conv-group-1',
+            actor: 'OPERATOR',
+            provider: 'whatsmeow',
+            provider_message_id: 'p-del',
+            direction: 'OUTGOING',
+            content: 'Update delivered',
+            message_type: 'TEXT',
+            media_url: '',
+            status: 'DELIVERED',
+            provider_timestamp: new Date().toISOString(),
+            is_internal: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+    } as any)
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ConversationDetail />
+      </QueryClientProvider>
+    )
+
+    // Group name and badge
+    expect(screen.getByText('Project Alpha Team')).toBeInTheDocument()
+    expect(screen.getByText('Group')).toBeInTheDocument()
+
+    // Status titles
+    expect(screen.getByTitle('Pending')).toBeInTheDocument()
+    expect(screen.getByTitle('Delivered')).toBeInTheDocument()
+  })
+
+  it('immediately clears reply input on send without waiting for response', () => {
+    vi.spyOn(useInboxModule, 'useConversation').mockReturnValue({
+      data: {
+        conversation: {
+          id: 'conv-123',
+          tenant_id: 'tenant-1',
+          account_id: 'acc-1',
+          contact_id: 'contact-1',
+          ticket_number: 42,
+          status: 'OPEN',
+          bot_state: '',
+          started_at: new Date().toISOString(),
+          last_activity_at: new Date().toISOString(),
+          closed_at: null,
+          handoff_at: null,
+          closure_reason: null,
+          assignee: 'Alice',
+          merged_into_id: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        messages: [],
+      },
+      isLoading: false,
+      isError: false,
+    } as any)
+
+    const sendMessageMock = vi.fn()
+    vi.spyOn(useInboxModule, 'useSendMessage').mockReturnValue({
+      mutate: sendMessageMock,
+      isPending: false,
+    } as any)
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ConversationDetail />
+      </QueryClientProvider>
+    )
+
+    const input = screen.getByPlaceholderText(/Type a reply/i) as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: 'Hello right now' } })
+    expect(input.value).toBe('Hello right now')
+
+    const form = input.closest('form')!
+    fireEvent.submit(form)
+
+    expect(sendMessageMock).toHaveBeenCalledTimes(1)
+    expect(input.value).toBe('')
   })
 })

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,13 +15,17 @@ import (
 	"github.com/google/uuid"
 	"github.com/raufhm/whatsapp-testing/domain"
 	"github.com/raufhm/whatsapp-testing/internal/storage"
+	"github.com/raufhm/whatsapp-testing/internal/totp"
 	"github.com/raufhm/whatsapp-testing/whatsapp"
 	"golang.org/x/crypto/bcrypt"
 )
 
 // fakeAuth implements storage.OperatorAuth for dashboard handler tests.
 type fakeAuth struct {
-	operators map[string]struct {
+	tenantID   uuid.UUID
+	tenantName string
+	tenantSlug string
+	operators  map[string]struct {
 		op   domain.Operator
 		hash string
 	}
@@ -37,6 +42,9 @@ func newFakeAuth(tenantID uuid.UUID, email, password string) *fakeAuth {
 func newFakeAuthWithRole(tenantID uuid.UUID, email, password, role string) *fakeAuth {
 	hash, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	return &fakeAuth{
+		tenantID:   tenantID,
+		tenantName: "Test Tenant",
+		tenantSlug: "test-tenant",
 		operators: map[string]struct {
 			op   domain.Operator
 			hash string
@@ -96,7 +104,7 @@ func (f *fakeAuth) TouchSession(sessionID uuid.UUID) error { return nil }
 func (f *fakeAuth) FindOperatorByIdentifier(tenantID uuid.UUID, identifier string) (domain.Operator, string, string, error) {
 	for _, rec := range f.operators {
 		if rec.op.TenantID == tenantID && (rec.op.Email == identifier || rec.op.WhatsappNumber == identifier) {
-			return rec.op, "", rec.hash, nil
+			return rec.op, "JBSWY3DPEHPK3PXP", rec.hash, nil
 		}
 	}
 	return domain.Operator{}, "", "", storage.ErrOperatorNotFound
@@ -202,11 +210,11 @@ func (f *fakeAuth) ValidateRecoveryToken(rawToken string) (domain.RecoveryToken,
 }
 
 func (f *fakeAuth) GetTenantSetupStatus(tenantID uuid.UUID) (domain.TenantSetupStatus, error) {
-	return domain.TenantSetupStatus{SetupStep: 1, IsSetupComplete: false}, nil
+	return domain.TenantSetupStatus{TenantName: "Test Tenant", SetupStep: 1, IsSetupComplete: false}, nil
 }
 
-func (f *fakeAuth) UpdateTenantSetup(tenantID uuid.UUID, setupStep int, orgDetails map[string]any) (domain.TenantSetupStatus, error) {
-	return domain.TenantSetupStatus{SetupStep: setupStep, IsSetupComplete: false}, nil
+func (f *fakeAuth) UpdateTenantSetup(tenantID uuid.UUID, name string, setupStep int, orgDetails map[string]any) (domain.TenantSetupStatus, error) {
+	return domain.TenantSetupStatus{TenantName: name, SetupStep: setupStep, IsSetupComplete: false}, nil
 }
 
 func (f *fakeAuth) CompleteTenantSetup(tenantID uuid.UUID) error {
@@ -214,7 +222,30 @@ func (f *fakeAuth) CompleteTenantSetup(tenantID uuid.UUID) error {
 }
 
 func (f *fakeAuth) GetTenantByID(tenantID uuid.UUID) (domain.Tenant, error) {
-	return domain.Tenant{ID: tenantID, Name: "Test Tenant"}, nil
+	name := f.tenantName
+	if name == "" {
+		name = "Test Tenant"
+	}
+	slug := f.tenantSlug
+	if slug == "" {
+		slug = "test-tenant"
+	}
+	return domain.Tenant{ID: tenantID, Name: name, Slug: slug}, nil
+}
+
+func (f *fakeAuth) FindTenantBySlug(slug string) (domain.Tenant, error) {
+	if slug == "non-existent" || slug == "unknown" {
+		return domain.Tenant{}, storage.ErrTenantNotFound
+	}
+	name := f.tenantName
+	if name == "" {
+		name = "Test Tenant"
+	}
+	s := f.tenantSlug
+	if s == "" {
+		s = "test-tenant"
+	}
+	return domain.Tenant{ID: f.tenantID, Name: name, Slug: s}, nil
 }
 
 func (f *fakeAuth) TrackInvitationDelivery(invitationID uuid.UUID, status, messageID, errorMessage string) error {
@@ -296,6 +327,36 @@ func TestDashboardMeUnauthenticated(t *testing.T) {
 
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestDashboardMeIncludesTenantName(t *testing.T) {
+	tenantID := uuid.New()
+	auth := newFakeAuth(tenantID, "op@example.com", "secret")
+	d := &DashboardHandler{Auth: auth}
+
+	// First login to get a session
+	loginBody := `{"email":"op@example.com","password":"secret"}`
+	loginReq := httptest.NewRequest(http.MethodPost, "/dashboard/api/login", bytes.NewBufferString(loginBody))
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginReq.Header.Set("X-Tenant", tenantID.String())
+	loginRR := httptest.NewRecorder()
+	d.ServeHTTP(loginRR, loginReq)
+	if loginRR.Code != http.StatusOK {
+		t.Fatalf("login failed: %d", loginRR.Code)
+	}
+	cookie := loginRR.Result().Cookies()[0]
+
+	meReq := httptest.NewRequest(http.MethodGet, "/dashboard/api/me", nil)
+	meReq.AddCookie(cookie)
+	meRR := httptest.NewRecorder()
+	d.ServeHTTP(meRR, meReq)
+
+	if meRR.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", meRR.Code, meRR.Body.String())
+	}
+	if !strings.Contains(meRR.Body.String(), `"tenant_name":"Test Tenant"`) {
+		t.Fatalf("expected tenant_name in /me response: %s", meRR.Body.String())
 	}
 }
 
@@ -525,6 +586,25 @@ func TestDashboardCreateWhatsAppInvitation(t *testing.T) {
 		t.Fatalf("expected invite token in whatsapp message: %s", fakeWA.lastMessage)
 	}
 
+	// Test WhatsApp invitation with formatted/spaced number
+	spacedInviteBody := `{"whatsapp_number":"+62 82141428746","role":"operator"}`
+	spacedInviteReq := httptest.NewRequest(http.MethodPost, "/dashboard/api/invitations/whatsapp", bytes.NewBufferString(spacedInviteBody))
+	spacedInviteReq.Header.Set("Content-Type", "application/json")
+	spacedInviteReq.AddCookie(cookie)
+
+	spacedInviteRR := httptest.NewRecorder()
+	d.ServeHTTP(spacedInviteRR, spacedInviteReq)
+
+	if spacedInviteRR.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for spaced whatsapp invitation, got %d: %s", spacedInviteRR.Code, spacedInviteRR.Body.String())
+	}
+	if !strings.Contains(spacedInviteRR.Body.String(), `"whatsapp_sent":true`) {
+		t.Fatalf("expected whatsapp_sent:true in response: %s", spacedInviteRR.Body.String())
+	}
+	if fakeWA.lastTo != "+6282141428746" {
+		t.Fatalf("expected normalized whatsapp sent to +6282141428746, got: %s", fakeWA.lastTo)
+	}
+
 	// Test WhatsApp failure fallback
 	fakeWA.shouldFail = true
 	failRR := httptest.NewRecorder()
@@ -678,5 +758,92 @@ func TestDashboardPairingAPI(t *testing.T) {
 
 	if opCancelRR.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 for operator cancel pairing, got %d", opCancelRR.Code)
+	}
+}
+
+func TestDashboardLoginWithCompanySlug(t *testing.T) {
+	tenantID := uuid.New()
+	auth := newFakeAuth(tenantID, "op@example.com", "secret")
+	d := &DashboardHandler{Auth: auth, StaticFS: nil}
+
+	// 1. Login with tenant_slug in body
+	body := `{"tenant_slug":"test-tenant","email":"op@example.com","password":"secret"}`
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/api/login", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	d.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), `"tenant_slug":"test-tenant"`) {
+		t.Fatalf("expected tenant_slug in response body: %s", rr.Body.String())
+	}
+
+	// 2. Login with X-Tenant-Slug header
+	body2 := `{"email":"op@example.com","password":"secret"}`
+	req2 := httptest.NewRequest(http.MethodPost, "/dashboard/api/login", bytes.NewBufferString(body2))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("X-Tenant-Slug", "test-tenant")
+	rr2 := httptest.NewRecorder()
+	d.ServeHTTP(rr2, req2)
+
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("expected 200 with X-Tenant-Slug header, got %d: %s", rr2.Code, rr2.Body.String())
+	}
+
+	// 3. Login with invalid tenant slug returns 401 INVALID_CREDENTIALS
+	body3 := `{"tenant_slug":"unknown","email":"op@example.com","password":"secret"}`
+	req3 := httptest.NewRequest(http.MethodPost, "/dashboard/api/login", bytes.NewBufferString(body3))
+	req3.Header.Set("Content-Type", "application/json")
+	rr3 := httptest.NewRecorder()
+	d.ServeHTTP(rr3, req3)
+
+	if rr3.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unknown slug, got %d: %s", rr3.Code, rr3.Body.String())
+	}
+	if !strings.Contains(rr3.Body.String(), "INVALID_CREDENTIALS") {
+		t.Fatalf("expected INVALID_CREDENTIALS error code, got %s", rr3.Body.String())
+	}
+}
+
+func TestDashboardLoginWithTOTPCode(t *testing.T) {
+	tenantID := uuid.New()
+	auth := newFakeAuth(tenantID, "op@example.com", "secret")
+	d := &DashboardHandler{Auth: auth, StaticFS: nil}
+
+	// Calculate a valid TOTP code for secret "JBSWY3DPEHPK3PXP"
+	validCode, err := totp.GenerateCode("JBSWY3DPEHPK3PXP", time.Now())
+	if err != nil {
+		t.Fatalf("GenerateCode failed: %v", err)
+	}
+
+	// 1. Successful TOTP login with code in body
+	body := fmt.Sprintf(`{"tenant_slug":"test-tenant","email":"op@example.com","code":%q}`, validCode)
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/api/login", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	d.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 with valid TOTP code, got %d: %s", rr.Code, rr.Body.String())
+	}
+	cookies := rr.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Name != sessionCookieName {
+		t.Fatalf("expected session cookie, got %v", cookies)
+	}
+
+	// 2. Failed TOTP login with invalid code
+	badBody := `{"tenant_slug":"test-tenant","email":"op@example.com","code":"000000"}`
+	req2 := httptest.NewRequest(http.MethodPost, "/dashboard/api/login", bytes.NewBufferString(badBody))
+	req2.Header.Set("Content-Type", "application/json")
+	rr2 := httptest.NewRecorder()
+	d.ServeHTTP(rr2, req2)
+
+	if rr2.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 with invalid TOTP code, got %d: %s", rr2.Code, rr2.Body.String())
+	}
+	if !strings.Contains(rr2.Body.String(), "invalid totp code") {
+		t.Fatalf("expected 'invalid totp code' message, got %s", rr2.Body.String())
 	}
 }

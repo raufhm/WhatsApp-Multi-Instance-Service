@@ -44,7 +44,7 @@ export const BackupCodesDisplay: React.FC<BackupCodesDisplayProps> = ({
 
   const handleDownloadTxt = () => {
     const dateStr = new Date().toISOString().split('T')[0]
-    const content = `WhatsApp Multi-Instance Service - Account Backup Codes
+    const content = `whops - Account Backup Codes
 Created on: ${new Date().toLocaleString()}
 ==================================================
 
@@ -61,7 +61,7 @@ ${codes.map((c, i) => `${(i + 1).toString().padStart(2, ' ')}. ${c}`).join('\n')
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `whatsapp-backup-codes-${dateStr}.txt`
+    link.download = `whops-backup-codes-${dateStr}.txt`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)

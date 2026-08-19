@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 	"github.com/raufhm/whatsapp-testing/domain"
@@ -110,6 +111,7 @@ func (wm *WhatsAppManager) SpawnInstance(device *store.Device) error {
 		wm.mu.Unlock()
 		go instance.worker()
 		wm.notifyStatus(instance.HostPhone, domain.StatusOnline, true)
+		go instance.syncJoinedGroups()
 	}
 
 	return nil
@@ -176,10 +178,17 @@ func (i *WhatsAppInstance) worker() {
 }
 
 func (i *WhatsAppInstance) processRequest(req domain.MessageRequest) {
-	recipientJID := types.NewJID(req.Recipient, types.DefaultUserServer)
-	if req.IsGroup {
-		recipientJID.Server = types.GroupServer
+	cleanRecipient := strings.TrimPrefix(strings.TrimSpace(req.Recipient), "+")
+	if at := strings.IndexByte(cleanRecipient, '@'); at >= 0 {
+		cleanRecipient = cleanRecipient[:at]
 	}
+	server := types.DefaultUserServer
+	if req.IsGroup {
+		server = types.GroupServer
+	} else {
+		cleanRecipient = SanitizePhoneNumber(cleanRecipient)
+	}
+	recipientJID := types.NewJID(cleanRecipient, server)
 
 	i.Client.SendChatPresence(context.Background(), recipientJID, types.ChatPresenceComposing, types.ChatPresenceMediaText)
 	time.Sleep(time.Duration(500+rand.Intn(1000)) * time.Millisecond)
@@ -187,15 +196,19 @@ func (i *WhatsAppInstance) processRequest(req domain.MessageRequest) {
 	var err error
 	var resp whatsmeow.SendResponse
 	var mediaURL string
+	var extra []whatsmeow.SendRequestExtra
+	if req.ID != "" {
+		extra = append(extra, whatsmeow.SendRequestExtra{ID: req.ID})
+	}
 
 	switch req.Type {
 	case domain.Image, domain.File, domain.Video, domain.Audio:
-		resp, mediaURL, err = i.sendMedia(recipientJID, req)
+		resp, mediaURL, err = i.sendMedia(recipientJID, req, extra...)
 	case domain.Reaction:
-		resp, err = i.sendReaction(recipientJID, req)
+		resp, err = i.sendReaction(recipientJID, req, extra...)
 	default:
 		msg := &waE2E.Message{Conversation: proto.String(req.Message)}
-		resp, err = i.Client.SendMessage(context.Background(), recipientJID, msg)
+		resp, err = i.Client.SendMessage(context.Background(), recipientJID, msg, extra...)
 	}
 
 	i.Client.SendChatPresence(context.Background(), recipientJID, types.ChatPresencePaused, types.ChatPresenceMediaText)
@@ -204,9 +217,13 @@ func (i *WhatsAppInstance) processRequest(req domain.MessageRequest) {
 	if actor == "" {
 		actor = domain.ActorOperator
 	}
+	sentID := req.ID
+	if sentID == "" {
+		sentID = resp.ID
+	}
 	if err == nil && i.Manager.Dispatcher != nil {
 		i.Manager.Dispatcher.DispatchMessage(domain.MessageMetadata{
-			WhatsappID:     resp.ID,
+			WhatsappID:     sentID,
 			HostID:         i.HostPhone,
 			Sender:         i.HostPhone,
 			Recipient:      req.Recipient,
@@ -216,6 +233,8 @@ func (i *WhatsAppInstance) processRequest(req domain.MessageRequest) {
 			Type:           req.Type,
 			Status:         domain.StatusSent,
 			Actor:          actor,
+			OperatorID:     req.OperatorID,
+			OperatorName:   req.OperatorName,
 			MediaURL:       mediaURL,
 			ReactionTarget: req.ReactionTarget,
 			Timestamp:      time.Now(),
@@ -224,6 +243,7 @@ func (i *WhatsAppInstance) processRequest(req domain.MessageRequest) {
 		log.Printf("[%s] Send error: %v", i.HostPhone, err)
 		if i.Manager.Dispatcher != nil {
 			i.Manager.Dispatcher.DispatchMessage(domain.MessageMetadata{
+				WhatsappID: sentID,
 				HostID:    i.HostPhone,
 				Sender:    i.HostPhone,
 				Recipient: req.Recipient,
@@ -231,6 +251,8 @@ func (i *WhatsAppInstance) processRequest(req domain.MessageRequest) {
 				Direction: domain.Outgoing,
 				Status:    domain.StatusFailed,
 				Actor:     actor,
+				OperatorID:   req.OperatorID,
+				OperatorName: req.OperatorName,
 				Timestamp: time.Now(),
 			})
 		}
@@ -239,12 +261,12 @@ func (i *WhatsAppInstance) processRequest(req domain.MessageRequest) {
 	time.Sleep(time.Duration(1500+rand.Intn(2000)) * time.Millisecond)
 }
 
-func (i *WhatsAppInstance) sendReaction(recipient types.JID, req domain.MessageRequest) (whatsmeow.SendResponse, error) {
+func (i *WhatsAppInstance) sendReaction(recipient types.JID, req domain.MessageRequest, extra ...whatsmeow.SendRequestExtra) (whatsmeow.SendResponse, error) {
 	msg := i.Client.BuildReaction(recipient, types.EmptyJID, req.ReactionTarget, req.Message)
-	return i.Client.SendMessage(context.Background(), recipient, msg)
+	return i.Client.SendMessage(context.Background(), recipient, msg, extra...)
 }
 
-func (i *WhatsAppInstance) sendMedia(recipient types.JID, req domain.MessageRequest) (whatsmeow.SendResponse, string, error) {
+func (i *WhatsAppInstance) sendMedia(recipient types.JID, req domain.MessageRequest, extra ...whatsmeow.SendRequestExtra) (whatsmeow.SendResponse, string, error) {
 	var data []byte
 	var err error
 
@@ -333,7 +355,7 @@ func (i *WhatsAppInstance) sendMedia(recipient types.JID, req domain.MessageRequ
 		}}
 	}
 
-	resp, err := i.Client.SendMessage(context.Background(), recipient, msg)
+	resp, err := i.Client.SendMessage(context.Background(), recipient, msg, extra...)
 	if err != nil {
 		return resp, "", err
 	}
@@ -374,6 +396,7 @@ func (i *WhatsAppInstance) eventHandler(evt interface{}) {
 	case *events.Connected:
 		i.IsConnected = true
 		i.Manager.notifyStatus(i.HostPhone, domain.StatusOnline, true)
+		go i.syncJoinedGroups()
 	case *events.IdentityChange:
 		log.Printf("[%s] Identity change for %s", i.HostPhone, v.JID)
 	case *events.JoinedGroup:
@@ -416,6 +439,22 @@ func (i *WhatsAppInstance) handleReceipt(v *events.Receipt) {
 			Status:     status,
 			Timestamp:  v.Timestamp,
 		})
+	}
+}
+
+func (i *WhatsAppInstance) syncJoinedGroups() {
+	if i.Client == nil || !i.IsConnected {
+		return
+	}
+	groups, err := i.Client.GetJoinedGroups(context.Background())
+	if err != nil {
+		log.Printf("[%s] GetJoinedGroups error: %v", i.HostPhone, err)
+		return
+	}
+	for _, g := range groups {
+		if g != nil && !g.JID.IsEmpty() {
+			go i.handleGroupInfo(g.JID)
+		}
 	}
 }
 
@@ -676,6 +715,61 @@ func (wm *WhatsAppManager) SendMessageRequest(host string, req domain.MessageReq
 	if !ok {
 		return fmt.Errorf("host %s not found", host)
 	}
+
+	if wm.ResolveTenant != nil {
+		tenantID := wm.ResolveTenant(host)
+		if tenantID != uuid.Nil {
+			quota, err := wm.Store.GetQuota(tenantID)
+			if err == nil && quota.CurrentUsage >= quota.MonthlyLimit {
+				return fmt.Errorf("quota exceeded")
+			}
+			_ = wm.Store.IncrementQuota(tenantID)
+		}
+	}
+
+	if req.ID == "" {
+		if instance.Client != nil {
+			req.ID = instance.Client.GenerateMessageID()
+		} else {
+			req.ID = whatsmeow.GenerateMessageID()
+		}
+	}
+
+	if strings.HasSuffix(req.Recipient, "@g.us") || strings.Contains(req.Recipient, "-") {
+		req.IsGroup = true
+	}
+
+	actor := req.Actor
+	if actor == "" {
+		actor = domain.ActorOperator
+	}
+
+	meta := domain.MessageMetadata{
+		WhatsappID:     req.ID,
+		HostID:         instance.HostPhone,
+		Sender:         instance.HostPhone,
+		Recipient:      req.Recipient,
+		Content:        req.Message,
+		IsGroup:        req.IsGroup,
+		Direction:      domain.Outgoing,
+		Type:           req.Type,
+		Status:         domain.StatusPending,
+		Actor:          actor,
+		MediaURL:       "",
+		ReactionTarget: req.ReactionTarget,
+		Timestamp:      time.Now(),
+	}
+
+	// Persist to store synchronously if available so any immediate query sees it right away.
+	if proj, ok := wm.Store.(domain.ApplicationProjector); ok {
+		_ = proj.ProjectMessage(meta)
+	}
+
+	// Immediately persist outgoing message with PENDING status so it echoes instantly in the inbox.
+	if wm.Dispatcher != nil {
+		wm.Dispatcher.DispatchMessage(meta)
+	}
+
 	instance.Queue <- req
 	return nil
 }
@@ -718,6 +812,46 @@ func (wm *WhatsAppManager) GetInstance(host string) (domain.InstanceInfo, error)
 	}, nil
 }
 
+func (wm *WhatsAppManager) Disconnect(host string) error {
+	wm.StopInstance(host)
+	wm.notifyStatus(host, domain.StatusOffline, false)
+	return nil
+}
+
+func (wm *WhatsAppManager) Reconnect(host string) error {
+	wm.mu.Lock()
+	if _, ok := wm.Instances[host]; ok {
+		wm.mu.Unlock()
+		return fmt.Errorf("instance already connected")
+	}
+	wm.mu.Unlock()
+
+	devices, err := wm.Container.GetAllDevices(context.Background())
+	if err != nil {
+		return err
+	}
+	for _, device := range devices {
+		if device.ID.User == host {
+			return wm.SpawnInstance(device)
+		}
+	}
+	return fmt.Errorf("no saved device for host %s", host)
+}
+
+// SanitizePhoneNumber cleans a phone number or JID string into digits only.
+func SanitizePhoneNumber(phone string) string {
+	if at := strings.IndexByte(phone, '@'); at >= 0 {
+		phone = phone[:at]
+	}
+	var b strings.Builder
+	for _, r := range phone {
+		if unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // SendInvitation sends an invitation text message using any available connected instance.
 func (wm *WhatsAppManager) SendInvitation(to, message string) error {
 	wm.mu.RLock()
@@ -735,7 +869,10 @@ func (wm *WhatsAppManager) SendInvitation(to, message string) error {
 		return fmt.Errorf("no connected WhatsApp instance available")
 	}
 
-	cleanTo := strings.TrimPrefix(strings.TrimSpace(to), "+")
+	cleanTo := SanitizePhoneNumber(to)
+	if cleanTo == "" {
+		return fmt.Errorf("invalid recipient phone number: %s", to)
+	}
 	recipientJID := types.NewJID(cleanTo, types.DefaultUserServer)
 	msg := &waE2E.Message{Conversation: proto.String(message)}
 	_, err := activeInstance.Client.SendMessage(context.Background(), recipientJID, msg)

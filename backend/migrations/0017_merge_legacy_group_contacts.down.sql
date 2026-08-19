@@ -1,0 +1,2 @@
+-- Revert merge legacy group contacts (no-op as duplicate records cannot be safely reconstructed)
+-- Left empty intentionally.

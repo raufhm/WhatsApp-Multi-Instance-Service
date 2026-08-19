@@ -164,7 +164,7 @@ func TestBackupCodes(t *testing.T) {
 func TestQRCodeDataURLAndOtpauthURL(t *testing.T) {
 	secret := "JBSWY3DPEHPK3PXP"
 	account := "user@example.com"
-	expectedURL := "otpauth://totp/WhatsApp%20Multi-Instance%20Service:user@example.com?algorithm=SHA1&digits=6&issuer=WhatsApp+Multi-Instance+Service&period=30&secret=JBSWY3DPEHPK3PXP"
+	expectedURL := "otpauth://totp/whops:user@example.com?algorithm=SHA1&digits=6&issuer=whops&period=30&secret=JBSWY3DPEHPK3PXP"
 	url := GenerateOtpauthURL(account, secret)
 	if url != expectedURL {
 		t.Fatalf("unexpected otpauth url:\nexpected: %s\ngot:      %s", expectedURL, url)
@@ -228,8 +228,8 @@ func TestQRCodeDataURLRoundTrip(t *testing.T) {
 	if u.Host != "totp" {
 		t.Errorf("expected host totp, got %s", u.Host)
 	}
-	if u.Path != "/WhatsApp Multi-Instance Service:user@example.com" {
-		t.Errorf("expected path /WhatsApp Multi-Instance Service:user@example.com, got %s", u.Path)
+	if u.Path != "/whops:user@example.com" {
+		t.Errorf("expected path /whops:user@example.com, got %s", u.Path)
 	}
 	q := u.Query()
 	if q.Get("issuer") != Issuer {

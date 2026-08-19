@@ -13,7 +13,7 @@ export function useDashboardAccounts() {
     queryKey: dashboardKeys.accounts,
     queryFn: async () => {
       const { data } = await apiClient.get('/dashboard/api/accounts')
-      return data
+      return data ?? []
     },
     refetchInterval: 10_000,
   })
@@ -24,7 +24,7 @@ export function useDashboardBotRules() {
     queryKey: dashboardKeys.botRules,
     queryFn: async () => {
       const { data } = await apiClient.get<BotRuleSet[]>('/dashboard/api/bot-rules')
-      return data
+      return data ?? []
     },
     refetchInterval: 30_000,
   })
@@ -62,8 +62,34 @@ export function useUploadJobs(status?: string) {
     queryFn: async () => {
       const params = status ? `?status=${status}` : ''
       const { data } = await apiClient.get<UploadJob[]>(`/dashboard/api/upload-jobs${params}`)
-      return data
+      return data ?? []
     },
     refetchInterval: 15_000,
+  })
+}
+
+export function useDisconnectAccount() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { data } = await apiClient.post(`/dashboard/api/accounts/${id}/disconnect`)
+      return data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: dashboardKeys.accounts })
+    },
+  })
+}
+
+export function useReconnectAccount() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { data } = await apiClient.post(`/dashboard/api/accounts/${id}/reconnect`)
+      return data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: dashboardKeys.accounts })
+    },
   })
 }
