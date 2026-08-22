@@ -46,3 +46,25 @@ func TestNormalizeAddressRejectsEmptyAndMalformed(t *testing.T) {
 		}
 	}
 }
+
+func TestIsLID(t *testing.T) {
+	cases := []struct {
+		input string
+		lid   bool
+	}{
+		{"211162285244452", true},
+		{"211162285244452@s.whatsapp.net", true},
+		{"+211162285244452", true},
+		{"15551234567", false},
+		{"15551234567@s.whatsapp.net", false},
+		{"120363@g.us", false},
+		{"", false},
+		{"21116228524445", false},
+		{"2111622852444523", false},
+	}
+	for _, c := range cases {
+		if got := IsLID(c.input); got != c.lid {
+			t.Errorf("IsLID(%q) = %v, want %v", c.input, got, c.lid)
+		}
+	}
+}

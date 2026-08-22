@@ -15,6 +15,7 @@ const UploadJobs = lazy(() => import('@/pages/UploadJobs'))
 const PipelinesSettings = lazy(() => import('@/pages/PipelinesSettings'))
 const SetupWizard = lazy(() => import('@/pages/SetupWizard'))
 const TotpSettings = lazy(() => import('@/pages/TotpSettings'))
+const Monitoring = lazy(() => import('@/pages/Monitoring'))
 
 function AuthenticatedLayout() {
   const { isAuthenticated, isLoading } = useAuth()
@@ -115,4 +116,10 @@ export const totpSettingsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: '/account/totp',
   component: TotpSettings,
+})
+
+export const monitoringRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: '/monitoring',
+  component: Monitoring,
 })

@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ContactDetail from '@/pages/ContactDetail'
 import * as useInboxModule from '@/hooks/useInbox'
+import * as useDashboardModule from '@/hooks/useDashboard'
 
 vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ id: 'contact-1' }),
@@ -68,6 +69,12 @@ describe('ContactDetail', () => {
       defaultOptions: { queries: { retry: false } },
     })
     vi.clearAllMocks()
+
+    vi.spyOn(useDashboardModule, 'useDashboardAccounts').mockReturnValue({
+      data: [{ id: 'acc-1', display_name: 'Main Channel' }],
+      isLoading: false,
+      isError: false,
+    } as any)
 
     vi.spyOn(useInboxModule, 'useContactFieldDefinitions').mockReturnValue({
       data: mockFieldDefinitions,

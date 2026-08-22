@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import apiClient, { mediaApi } from '@/lib/apiClient'
+import apiClient, { mediaApi, invitationsApi } from '@/lib/apiClient'
 import type { Conversation, ConversationSummary, ConversationMessage, Activity, Contact, Paginated, ContactFieldDefinition, DealStage, DealStageTransition, Pipeline } from '@/types'
 
 export interface ConversationFilters {
@@ -11,12 +11,18 @@ export interface ConversationFilters {
   offset?: number
 }
 
+export interface ConversationQueryOptions {
+  limit?: number
+  offset?: number
+}
+
 export const inboxKeys = {
   all: ['conversations'] as const,
   list: (filters: ConversationFilters) => ['conversations', filters] as const,
   detail: (id: string) => ['conversations', id] as const,
   messages: (id: string) => ['conversations', id, 'messages'] as const,
   activities: ['activities'] as const,
+  operators: ['operators'] as const,
   contacts: (filters?: Record<string, unknown>) => ['contacts', filters] as const,
 }
 
@@ -36,18 +42,22 @@ export function useInbox(filters: ConversationFilters = {}) {
   })
 }
 
-export function useConversation(id: string) {
+export function useConversation(id: string, options: ConversationQueryOptions = {}) {
   const qc = useQueryClient()
   return useQuery({
-    queryKey: inboxKeys.detail(id),
+    queryKey: ['conversations', id, options.limit ?? null, options.offset ?? null] as const,
     queryFn: async () => {
+      const params = new URLSearchParams()
+      if (options.limit) params.set('limit', String(options.limit))
+      if (options.offset) params.set('offset', String(options.offset))
+      const suffix = params.toString() ? `?${params.toString()}` : ''
       const { data } = await apiClient.get<{ conversation: ConversationSummary; messages: ConversationMessage[] }>(
-        `/api/v1/conversations/${id}`
+        `/api/v1/conversations/${id}${suffix}`
       )
       if (!data) return data
       // Preserve any pending optimistic messages that are not yet returned in the server response
       const currentCache = qc.getQueryData<{ conversation: ConversationSummary; messages: ConversationMessage[] }>(
-        inboxKeys.detail(id)
+        ['conversations', id, options.limit ?? null, options.offset ?? null]
       )
       if (currentCache?.messages && Array.isArray(data.messages)) {
         const pending = currentCache.messages.filter(
@@ -71,6 +81,7 @@ export function useConversation(id: string) {
     },
     enabled: !!id,
     refetchInterval: 3000,
+    placeholderData: (previous) => previous,
   })
 }
 
@@ -82,6 +93,17 @@ export function useActivities() {
       return data ?? []
     },
     refetchInterval: 30_000,
+  })
+}
+
+export function useOperators() {
+  return useQuery({
+    queryKey: inboxKeys.operators,
+    queryFn: async () => {
+      const data = await invitationsApi.listOperators()
+      return Array.isArray(data) ? data : []
+    },
+    staleTime: 5 * 60 * 1000,
   })
 }
 
@@ -188,6 +210,8 @@ export function useSendMessage(conversationId?: string) {
       type = 'TEXT',
       media_key,
       is_group,
+      reaction_target,
+      on_behalf_operator_id,
     }: {
       account: string
       recipient: string
@@ -195,13 +219,19 @@ export function useSendMessage(conversationId?: string) {
       type?: string
       media_key?: string
       is_group?: boolean
+      reaction_target?: string
+      on_behalf_operator_id?: string
+      on_behalf_operator_name?: string
     }) => {
       const { data } = await apiClient.post(`/api/v1/accounts/${account}/messages`, {
+        conversation_id: conversationId,
         recipient,
         message,
         type,
         media_key,
         is_group,
+        reaction_target,
+        on_behalf_operator_id,
       })
       return data
     },
@@ -228,9 +258,12 @@ export function useSendMessage(conversationId?: string) {
         provider_message_id: '',
         direction: 'OUTGOING',
         content: vars.message,
+        reaction_target: vars.reaction_target || null,
         message_type: (vars.type as any) || 'TEXT',
         media_url: '',
         status: 'PENDING',
+        operator_id: vars.on_behalf_operator_id || null,
+        operator_name: vars.on_behalf_operator_name || null,
         provider_timestamp: new Date().toISOString(),
         is_internal: false,
         created_at: new Date().toISOString(),
@@ -389,7 +422,9 @@ export function useAddInternalNote() {
       return data
     },
     onSuccess: (_data, { id }) => {
+      qc.invalidateQueries({ queryKey: inboxKeys.detail(id) })
       qc.invalidateQueries({ queryKey: inboxKeys.messages(id) })
+      qc.invalidateQueries({ queryKey: inboxKeys.all })
     },
   })
 }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from '@tanstack/react-router'
 import { useInbox, useConversation } from '@/hooks/useInbox'
+import { useDashboardAccounts } from '@/hooks/useDashboard'
 import ConversationList from '@/components/inbox/ConversationList'
 import ConversationThread from '@/components/inbox/ConversationThread'
 import ConversationDetails from '@/components/inbox/ConversationDetails'
@@ -34,7 +35,14 @@ const Inbox: React.FC = () => {
     refetch,
   } = useInbox({ limit: 100 })
 
-  const { data: conversationData } = useConversation(selectedId || '')
+  // Load the consolidated contact history, not just the latest ticket.
+  const { data: conversationData } = useConversation(selectedId || '', { limit: 500 })
+  const { data: accountsData } = useDashboardAccounts()
+  const accounts = Array.isArray(accountsData) ? accountsData : []
+  const channels = accounts.map((account: any) => ({
+    value: account.id,
+    label: account.display_name || account.host_id,
+  }))
 
   const handleSelect = (conversationId: string) => {
     if (conversationId === selectedId) return
@@ -42,10 +50,12 @@ const Inbox: React.FC = () => {
   }
 
   return (
-    <div className="h-[calc(100vh-5.5rem)] -mx-4 -my-5 flex bg-white">
-      <div className="w-80 border-r border-gray-200 flex flex-col bg-gray-50">
+    <div className="relative h-[calc(100vh-5.5rem)] -mx-4 -my-5 flex overflow-hidden bg-slate-100">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.14),transparent_30%),radial-gradient(circle_at_top_right,rgba(59,130,246,0.12),transparent_24%),linear-gradient(to_bottom,rgba(248,250,252,1),rgba(241,245,249,0.92))]" />
+      <div className="relative w-80 border-r border-white/60 flex flex-col bg-white/80 backdrop-blur-xl shadow-[8px_0_30px_-20px_rgba(15,23,42,0.45)]">
         <ConversationList
           conversations={conversations}
+          channels={channels}
           selectedId={selectedId}
           isLoading={isLoading}
           isError={isError}
@@ -54,12 +64,12 @@ const Inbox: React.FC = () => {
         />
       </div>
 
-      <div className="flex-1 flex flex-col min-w-0 border-r border-gray-200 relative">
+      <div className="relative flex-1 flex flex-col min-w-0 border-r border-white/60">
         {selectedId ? (
           <ConversationThread conversationId={selectedId} />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-gray-400 p-8">
-            <div className="h-16 w-16 rounded-full bg-gray-100 flex items-center justify-center mb-4">
+            <div className="h-16 w-16 rounded-2xl bg-white shadow-lg shadow-slate-200 flex items-center justify-center mb-4">
               <svg
                 className="h-8 w-8 text-gray-400"
                 fill="none"
@@ -82,7 +92,7 @@ const Inbox: React.FC = () => {
 
       {/* Details Panel */}
       <div
-        className={`bg-white border-l border-gray-200 overflow-y-auto transition-all duration-300 ${
+        className={`relative bg-white/80 backdrop-blur-xl border-l border-white/60 overflow-y-auto transition-all duration-300 ${
           detailsCollapsed ? 'w-0 opacity-0 overflow-hidden' : 'w-80 opacity-100'
         }`}
       >
@@ -90,13 +100,21 @@ const Inbox: React.FC = () => {
           <button
             type="button"
             onClick={() => setDetailsCollapsed(true)}
-            className="absolute top-2 right-2 z-10 p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
+            className="absolute top-2 right-2 z-10 p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
             aria-label="Collapse conversation details"
             title="Collapse conversation details"
           >
             <PanelRightClose className="h-4 w-4" />
           </button>
-          <ConversationDetails conversation={conversationData?.conversation || null} />
+          <ConversationDetails
+            conversation={conversationData?.conversation || null}
+            channelLabel={
+              conversationData?.conversation
+                ? channels.find((channel) => channel.value === conversationData.conversation.account_id)?.label ||
+                  conversationData.conversation.account_id
+                : null
+            }
+          />
         </div>
       </div>
 
@@ -105,7 +123,7 @@ const Inbox: React.FC = () => {
         <button
           type="button"
           onClick={() => setDetailsCollapsed(false)}
-          className="fixed right-3 top-[4.5rem] z-20 p-2 bg-white border border-gray-200 rounded-md shadow-sm text-gray-500 hover:text-gray-700 hover:bg-gray-50 transition-colors"
+          className="fixed right-3 top-[4.5rem] z-20 p-2 bg-white/90 backdrop-blur border border-gray-200 rounded-full shadow-lg text-gray-500 hover:text-gray-700 hover:bg-white transition-colors"
           aria-label="Expand conversation details"
           title="Expand conversation details"
         >

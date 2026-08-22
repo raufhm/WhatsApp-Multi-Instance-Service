@@ -36,6 +36,9 @@ type WhatsAppInstance struct {
 	Manager     *WhatsAppManager
 	S3          *storage.S3Storage
 	IsConnected bool
+
+	groupInfoMu sync.Mutex
+	groupInfoAt map[string]time.Time
 }
 
 type WhatsAppManager struct {
@@ -84,12 +87,13 @@ func (wm *WhatsAppManager) Start() error {
 }
 
 func (wm *WhatsAppManager) SpawnInstance(device *store.Device) error {
-	client := whatsmeow.NewClient(device, waLog.Stdout("Client", "WARN", true))
+	client := whatsmeow.NewClient(device, waLog.Stdout("Client", "ERROR", true))
 	instance := &WhatsAppInstance{
-		Client:  client,
-		Queue:   make(chan domain.MessageRequest, 100),
-		Manager: wm,
-		S3:      wm.S3,
+		Client:      client,
+		Queue:       make(chan domain.MessageRequest, 100),
+		Manager:     wm,
+		S3:          wm.S3,
+		groupInfoAt: make(map[string]time.Time),
 	}
 	client.AddEventHandler(instance.eventHandler)
 
@@ -117,13 +121,37 @@ func (wm *WhatsAppManager) SpawnInstance(device *store.Device) error {
 	return nil
 }
 
-func (wm *WhatsAppManager) StopInstance(host string) {
+// removeInstance removes an instance before calling into whatsmeow. This is
+// important because disconnect/logout can trigger callbacks that call back into
+// the manager.
+func (wm *WhatsAppManager) removeInstance(host string) *WhatsAppInstance {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
-	if instance, ok := wm.Instances[host]; ok {
-		instance.IsConnected = false
+
+	instanceKey := host
+	instance, ok := wm.Instances[host]
+	if !ok {
+		wanted := SanitizePhoneNumber(host)
+		for key, candidate := range wm.Instances {
+			if SanitizePhoneNumber(key) == wanted {
+				instanceKey = key
+				instance = candidate
+				break
+			}
+		}
+	}
+	if instance == nil {
+		return nil
+	}
+	instance.IsConnected = false
+	delete(wm.Instances, instanceKey)
+	return instance
+}
+
+func (wm *WhatsAppManager) StopInstance(host string) {
+	instance := wm.removeInstance(host)
+	if instance != nil && instance.Client != nil {
 		instance.Client.Disconnect()
-		delete(wm.Instances, host)
 	}
 }
 
@@ -243,17 +271,17 @@ func (i *WhatsAppInstance) processRequest(req domain.MessageRequest) {
 		log.Printf("[%s] Send error: %v", i.HostPhone, err)
 		if i.Manager.Dispatcher != nil {
 			i.Manager.Dispatcher.DispatchMessage(domain.MessageMetadata{
-				WhatsappID: sentID,
-				HostID:    i.HostPhone,
-				Sender:    i.HostPhone,
-				Recipient: req.Recipient,
-				Content:   req.Message,
-				Direction: domain.Outgoing,
-				Status:    domain.StatusFailed,
-				Actor:     actor,
+				WhatsappID:   sentID,
+				HostID:       i.HostPhone,
+				Sender:       i.HostPhone,
+				Recipient:    req.Recipient,
+				Content:      req.Message,
+				Direction:    domain.Outgoing,
+				Status:       domain.StatusFailed,
+				Actor:        actor,
 				OperatorID:   req.OperatorID,
 				OperatorName: req.OperatorName,
-				Timestamp: time.Now(),
+				Timestamp:    time.Now(),
 			})
 		}
 	}
@@ -381,9 +409,9 @@ func (i *WhatsAppInstance) eventHandler(evt interface{}) {
 	switch v := evt.(type) {
 	case *events.Message:
 		go i.handleIncomingMessage(v)
-		if v.Info.IsGroup {
-			go i.handleGroupInfo(v.Info.Chat)
-		}
+		// Do not query GetGroupInfo for every group message. Group metadata is
+		// handled by explicit GroupInfo/JoinedGroup events; message ingestion
+		// must remain independent of WhatsApp metadata rate limits.
 	case *events.Receipt:
 		go i.handleReceipt(v)
 	case *events.HistorySync:
@@ -443,25 +471,43 @@ func (i *WhatsAppInstance) handleReceipt(v *events.Receipt) {
 }
 
 func (i *WhatsAppInstance) syncJoinedGroups() {
-	if i.Client == nil || !i.IsConnected {
+	if i.Manager.Dispatcher == nil || i.Client == nil {
 		return
 	}
+
+	// Refresh all groups with one request after reconnect. This avoids one
+	// GetGroupInfo call per conversation and keeps WhatsApp rate-limit usage
+	// bounded during a resync.
 	groups, err := i.Client.GetJoinedGroups(context.Background())
 	if err != nil {
 		log.Printf("[%s] GetJoinedGroups error: %v", i.HostPhone, err)
 		return
 	}
-	for _, g := range groups {
-		if g != nil && !g.JID.IsEmpty() {
-			go i.handleGroupInfo(g.JID)
+	for _, info := range groups {
+		if info != nil {
+			i.dispatchGroupInfo(info)
 		}
 	}
 }
 
 func (i *WhatsAppInstance) handleGroupInfo(groupJID types.JID) {
-	if i.Manager.Dispatcher == nil {
+	if i.Manager.Dispatcher == nil || groupJID.IsEmpty() {
 		return
 	}
+
+	// Group metadata is stable and WhatsApp rate-limits GetGroupInfo. Incoming
+	// messages can otherwise trigger one request per message, especially during
+	// history sync. Deduplicate and refresh at most once per ten minutes.
+	groupKey := groupJID.String()
+	now := time.Now()
+	i.groupInfoMu.Lock()
+	last, seen := i.groupInfoAt[groupKey]
+	if seen && now.Sub(last) < 10*time.Minute {
+		i.groupInfoMu.Unlock()
+		return
+	}
+	i.groupInfoAt[groupKey] = now
+	i.groupInfoMu.Unlock()
 
 	info, err := i.Client.GetGroupInfo(context.Background(), groupJID)
 	if err != nil {
@@ -481,6 +527,32 @@ func (i *WhatsAppInstance) handleGroupInfo(groupJID types.JID) {
 
 	for _, p := range info.Participants {
 		phone := i.resolvePhone(p.JID)
+		if phone != "" {
+			participants = append(participants, phone)
+			if allHosts[phone] {
+				hostsInGroup = append(hostsInGroup, phone)
+			}
+		}
+	}
+
+	i.dispatchGroupInfo(info)
+}
+
+func (i *WhatsAppInstance) dispatchGroupInfo(info *types.GroupInfo) {
+	if info == nil || i.Manager.Dispatcher == nil {
+		return
+	}
+
+	var participants []string
+	var hostsInGroup []string
+	i.Manager.mu.RLock()
+	allHosts := make(map[string]bool, len(i.Manager.Instances))
+	for phone := range i.Manager.Instances {
+		allHosts[phone] = true
+	}
+	i.Manager.mu.RUnlock()
+	for _, participant := range info.Participants {
+		phone := i.resolvePhone(participant.JID)
 		if phone != "" {
 			participants = append(participants, phone)
 			if allHosts[phone] {
@@ -509,7 +581,7 @@ func (i *WhatsAppInstance) handleHistorySync(v *events.HistorySync) {
 
 	for _, conv := range v.Data.GetConversations() {
 		chatJID, _ := types.ParseJID(conv.GetID())
-		if chatJID.IsEmpty() {
+		if chatJID.IsEmpty() || chatJID.Server == types.BroadcastServer {
 			continue
 		}
 
@@ -524,6 +596,7 @@ func (i *WhatsAppInstance) handleHistorySync(v *events.HistorySync) {
 			}
 
 			content, msgType, reactionTarget := parseMessageContent(m)
+			content = i.normalizeMentionNumbers(content, m)
 
 			if content == "" {
 				continue
@@ -548,6 +621,11 @@ func (i *WhatsAppInstance) handleHistorySync(v *events.HistorySync) {
 				recipient = chatJID.User
 			}
 
+			var mediaURL string
+			if i.Manager != nil && i.Manager.MediaStore != nil && i.Client != nil {
+				mediaURL = i.downloadMessageMedia(m, wi.GetKey().GetID())
+			}
+
 			i.Manager.Dispatcher.DispatchMessage(domain.MessageMetadata{
 				WhatsappID:     wi.GetKey().GetID(),
 				HostID:         i.HostPhone,
@@ -558,6 +636,7 @@ func (i *WhatsAppInstance) handleHistorySync(v *events.HistorySync) {
 				Direction:      direction,
 				Type:           msgType,
 				Status:         domain.StatusSent,
+				MediaURL:       mediaURL,
 				ReactionTarget: reactionTarget,
 				Timestamp:      time.Unix(int64(wi.GetMessageTimestamp()), 0),
 			})
@@ -565,8 +644,79 @@ func (i *WhatsAppInstance) handleHistorySync(v *events.HistorySync) {
 	}
 }
 
+func (i *WhatsAppInstance) downloadMessageMedia(m *waE2E.Message, msgID string) string {
+	if i.Manager == nil || i.Manager.MediaStore == nil || i.Client == nil || m == nil {
+		return ""
+	}
+
+	var downloadable whatsmeow.DownloadableMessage
+	var defaultMime string
+	if img := m.GetImageMessage(); img != nil {
+		downloadable = img
+		defaultMime = img.GetMimetype()
+		if defaultMime == "" {
+			defaultMime = "image/jpeg"
+		}
+	} else if vid := m.GetVideoMessage(); vid != nil {
+		downloadable = vid
+		defaultMime = vid.GetMimetype()
+		if defaultMime == "" {
+			defaultMime = "video/mp4"
+		}
+	} else if aud := m.GetAudioMessage(); aud != nil {
+		downloadable = aud
+		defaultMime = aud.GetMimetype()
+		if defaultMime == "" {
+			defaultMime = "audio/ogg"
+		}
+	} else if doc := m.GetDocumentMessage(); doc != nil {
+		downloadable = doc
+		defaultMime = doc.GetMimetype()
+		if defaultMime == "" {
+			defaultMime = "application/octet-stream"
+		}
+	}
+
+	if downloadable == nil {
+		return ""
+	}
+
+	data, err := i.Client.Download(context.Background(), downloadable)
+	if err != nil {
+		log.Printf("[%s] Error downloading media for message %s: %v", i.HostPhone, msgID, err)
+		return ""
+	}
+
+	mimeType := http.DetectContentType(data)
+	if mimeType == "application/octet-stream" && defaultMime != "" {
+		mimeType = defaultMime
+	}
+
+	key := fmt.Sprintf("media/%s", uuid.NewString())
+	if err := i.Manager.MediaStore.Put(context.Background(), key, mimeType, data); err != nil {
+		log.Printf("[%s] Error storing media: %v", i.HostPhone, err)
+		return ""
+	}
+
+	var tenantID uuid.UUID
+	if i.Manager.ResolveTenant != nil {
+		tenantID = i.Manager.ResolveTenant(i.HostPhone)
+	}
+	if i.Manager.Store != nil && tenantID != uuid.Nil {
+		_ = i.Manager.Store.RecordMediaObject(context.Background(), tenantID, key, mimeType, int64(len(data)))
+	}
+
+	return storage.ResolveMediaURL(key, i.Manager.S3ObjectURL, "")
+}
+
 func (i *WhatsAppInstance) handleIncomingMessage(v *events.Message) {
+	// WhatsApp Status updates are broadcast timeline items, not customer chats.
+	// Do not project them into contacts, conversations, or the inbox.
+	if v == nil || v.Info.Chat.Server == types.BroadcastServer {
+		return
+	}
 	content, msgType, reactionTarget := parseMessageContent(v.Message)
+	content = i.normalizeMentionNumbers(content, v.Message)
 
 	if content == "" {
 		return
@@ -574,7 +724,23 @@ func (i *WhatsAppInstance) handleIncomingMessage(v *events.Message) {
 
 	log.Printf("[%s] Received message: %s from %s", i.HostPhone, v.Info.ID, v.Info.Sender)
 
-	sender := i.resolvePhone(v.Info.Sender)
+	// For group events, Sender should be the participant, but some WhatsApp
+	// addressing modes expose the group JID there. Prefer SenderAlt (the
+	// participant's phone-number JID) when Sender is the group/chat JID.
+	senderJID := v.Info.Sender
+	if v.Info.IsGroup && (senderJID.Server == types.GroupServer || senderJID == v.Info.Chat) {
+		if !v.Info.SenderAlt.IsEmpty() {
+			senderJID = v.Info.SenderAlt
+		} else if v.SourceWebMsg != nil {
+			// History/unavailable-message events may retain the participant
+			// in the original message key even when MessageInfo.Sender is the
+			// group JID.
+			if participant, err := types.ParseJID(v.SourceWebMsg.GetKey().GetParticipant()); err == nil && !participant.IsEmpty() {
+				senderJID = participant
+			}
+		}
+	}
+	sender := i.resolvePhone(senderJID)
 	recipient := i.HostPhone
 	direction := domain.Incoming
 
@@ -587,58 +753,7 @@ func (i *WhatsAppInstance) handleIncomingMessage(v *events.Message) {
 
 	var mediaURL string
 	if i.Manager != nil && i.Manager.MediaStore != nil && i.Client != nil {
-		var downloadable whatsmeow.DownloadableMessage
-		var defaultMime string
-		if img := v.Message.GetImageMessage(); img != nil {
-			downloadable = img
-			defaultMime = img.GetMimetype()
-			if defaultMime == "" {
-				defaultMime = "image/jpeg"
-			}
-		} else if vid := v.Message.GetVideoMessage(); vid != nil {
-			downloadable = vid
-			defaultMime = vid.GetMimetype()
-			if defaultMime == "" {
-				defaultMime = "video/mp4"
-			}
-		} else if aud := v.Message.GetAudioMessage(); aud != nil {
-			downloadable = aud
-			defaultMime = aud.GetMimetype()
-			if defaultMime == "" {
-				defaultMime = "audio/ogg"
-			}
-		} else if doc := v.Message.GetDocumentMessage(); doc != nil {
-			downloadable = doc
-			defaultMime = doc.GetMimetype()
-			if defaultMime == "" {
-				defaultMime = "application/octet-stream"
-			}
-		}
-
-		if downloadable != nil {
-			data, err := i.Client.Download(context.Background(), downloadable)
-			if err != nil {
-				log.Printf("[%s] Error downloading media for message %s: %v", i.HostPhone, v.Info.ID, err)
-			} else {
-				mimeType := http.DetectContentType(data)
-				if mimeType == "application/octet-stream" && defaultMime != "" {
-					mimeType = defaultMime
-				}
-				key := fmt.Sprintf("media/%s", uuid.NewString())
-				if perr := i.Manager.MediaStore.Put(context.Background(), key, mimeType, data); perr != nil {
-					log.Printf("[%s] Error storing media: %v", i.HostPhone, perr)
-				} else {
-					var tenantID uuid.UUID
-					if i.Manager.ResolveTenant != nil {
-						tenantID = i.Manager.ResolveTenant(i.HostPhone)
-					}
-					if i.Manager.Store != nil && tenantID != uuid.Nil {
-						_ = i.Manager.Store.RecordMediaObject(context.Background(), tenantID, key, mimeType, int64(len(data)))
-					}
-					mediaURL = storage.ResolveMediaURL(key, i.Manager.S3ObjectURL, "")
-				}
-			}
-		}
+		mediaURL = i.downloadMessageMedia(v.Message, v.Info.ID)
 	}
 
 	if i.Manager.Dispatcher != nil {
@@ -657,6 +772,35 @@ func (i *WhatsAppInstance) handleIncomingMessage(v *events.Message) {
 			Timestamp:      v.Info.Timestamp,
 		})
 	}
+}
+
+// normalizeMentionNumbers replaces WhatsApp LIDs in rendered text with the
+// corresponding phone-number JIDs when the local LID mapping is available.
+func (i *WhatsAppInstance) normalizeMentionNumbers(content string, m *waE2E.Message) string {
+	if content == "" || m == nil {
+		return content
+	}
+	var mentioned []string
+	if text := m.GetExtendedTextMessage(); text != nil && text.GetContextInfo() != nil {
+		mentioned = text.GetContextInfo().GetMentionedJID()
+	} else if image := m.GetImageMessage(); image != nil && image.GetContextInfo() != nil {
+		mentioned = image.GetContextInfo().GetMentionedJID()
+	} else if video := m.GetVideoMessage(); video != nil && video.GetContextInfo() != nil {
+		mentioned = video.GetContextInfo().GetMentionedJID()
+	} else if document := m.GetDocumentMessage(); document != nil && document.GetContextInfo() != nil {
+		mentioned = document.GetContextInfo().GetMentionedJID()
+	}
+	for _, raw := range mentioned {
+		jid, err := types.ParseJID(raw)
+		if err != nil || jid.IsEmpty() {
+			continue
+		}
+		phone := i.resolvePhone(jid)
+		if phone != "" && phone != jid.User {
+			content = strings.ReplaceAll(content, "@"+jid.User, "@"+phone)
+		}
+	}
+	return content
 }
 
 func parseMessageContent(m *waE2E.Message) (content string, msgType domain.MessageType, reactionTarget string) {
@@ -813,7 +957,18 @@ func (wm *WhatsAppManager) GetInstance(host string) (domain.InstanceInfo, error)
 }
 
 func (wm *WhatsAppManager) Disconnect(host string) error {
-	wm.StopInstance(host)
+	// Dashboard disconnect means unlink this companion device from the actual
+	// WhatsApp phone, not merely close the websocket connection.
+	instance := wm.removeInstance(host)
+	if instance != nil && instance.Client != nil {
+		if err := instance.Client.Logout(context.Background()); err != nil {
+			// Ensure the local connection is still stopped if the remote unlink
+			// request fails, but return the error to the dashboard.
+			instance.Client.Disconnect()
+			wm.notifyStatus(host, domain.StatusOffline, false)
+			return err
+		}
+	}
 	wm.notifyStatus(host, domain.StatusOffline, false)
 	return nil
 }

@@ -137,6 +137,10 @@ type ConversationMessage struct {
 	Provider          string     `json:"provider"`
 	ProviderMessageID string     `json:"provider_message_id"`
 	Direction         string     `json:"direction"`
+	// SenderAddress is the participant who authored a group message.
+	// It is nullable in storage for historical messages.
+	SenderAddress     string     `json:"sender_address,omitempty"`
+	ReactionTarget    string     `json:"reaction_target,omitempty"`
 	Content           string     `json:"content"`
 	MessageType       string     `json:"message_type"`
 	MediaURL          string     `json:"media_url"`
@@ -351,12 +355,12 @@ type MoveContactStageInput struct {
 // ContactActivityInput is the tenant-scoped payload for creating a follow-up
 // activity directly against a contact (i.e. not tied to a single conversation).
 type ContactActivityInput struct {
-	Type            string
-	Summary         string
-	NextAction      string
-	Priority        string
-	DueAt           *time.Time
-	ConversationID  uuid.UUID
+	Type           string
+	Summary        string
+	NextAction     string
+	Priority       string
+	DueAt          *time.Time
+	ConversationID uuid.UUID
 }
 
 type ContactUpsert struct {

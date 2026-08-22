@@ -43,6 +43,10 @@ type accountHostResolver interface {
 	AccountHost(uuid.UUID, string) (string, error)
 }
 
+type contactConversationTimelineReader interface {
+	GetContactConversationTimeline(tenantID, contactID uuid.UUID, limit, offset int) ([]domain.ConversationMessage, error)
+}
+
 func writeAPIError(w http.ResponseWriter, status int, code, message string) {
 	WriteJSON(w, status, apiError{Error: message, Code: code})
 }
@@ -82,7 +86,7 @@ func page(r *http.Request) (int, int, bool) {
 	if v := r.URL.Query().Get("limit"); v != "" {
 		limit, err = strconv.Atoi(v)
 	}
-	if err != nil || limit < 1 || limit > 100 {
+	if err != nil || limit < 1 || limit > 1000 {
 		return 0, 0, false
 	}
 	if v := r.URL.Query().Get("offset"); v != "" {
@@ -691,6 +695,7 @@ func (s *Server) APIHandler(w http.ResponseWriter, r *http.Request) {
 			status := r.URL.Query().Get("status")
 			v, err := s.Platform.ListConversationSummaries(tenant, status, limit, offset)
 			if err != nil {
+				log.Printf("API conversations list error tenant=%s status=%q limit=%d offset=%d: %v", tenant, status, limit, offset, err)
 				writeAPIError(w, 500, "INTERNAL_ERROR", "request failed")
 				return
 			}
@@ -701,8 +706,15 @@ func (s *Server) APIHandler(w http.ResponseWriter, r *http.Request) {
 			if len(parts) == 2 || (len(parts) == 3 && parts[2] == "messages") {
 				for _, c := range v {
 					if strconv.FormatInt(c.TicketNumber, 10) == parts[1] || c.ID.String() == parts[1] {
-						msgs, e := s.Platform.GetConversationTimeline(tenant, c.ID, limit, offset)
+						var msgs []domain.ConversationMessage
+						var e error
+						if history, ok := s.Platform.(contactConversationTimelineReader); ok {
+							msgs, e = history.GetContactConversationTimeline(tenant, c.ContactID, limit, offset)
+						} else {
+							msgs, e = s.Platform.GetConversationTimeline(tenant, c.ID, limit, offset)
+						}
 						if e != nil {
+							log.Printf("API conversation timeline error tenant=%s conversation=%s limit=%d offset=%d: %v", tenant, c.ID, limit, offset, e)
 							writeAPIError(w, 500, "INTERNAL_ERROR", "request failed")
 							return
 						}
@@ -712,8 +724,15 @@ func (s *Server) APIHandler(w http.ResponseWriter, r *http.Request) {
 				}
 				if convID, err := uuid.Parse(parts[1]); err == nil {
 					if conv, err := s.Platform.GetConversation(tenant, convID); err == nil {
-						msgs, e := s.Platform.GetConversationTimeline(tenant, conv.ID, limit, offset)
+						var msgs []domain.ConversationMessage
+						var e error
+						if history, ok := s.Platform.(contactConversationTimelineReader); ok {
+							msgs, e = history.GetContactConversationTimeline(tenant, conv.ContactID, limit, offset)
+						} else {
+							msgs, e = s.Platform.GetConversationTimeline(tenant, conv.ID, limit, offset)
+						}
 						if e != nil {
+							log.Printf("API conversation timeline error tenant=%s conversation=%s limit=%d offset=%d: %v", tenant, conv.ID, limit, offset, e)
 							writeAPIError(w, 500, "INTERNAL_ERROR", "request failed")
 							return
 						}
@@ -920,16 +939,47 @@ func (s *Server) sendAPI(w http.ResponseWriter, r *http.Request, host string) {
 	isGroup := req.IsGroup || strings.HasSuffix(req.Recipient, "@g.us") || strings.Contains(req.Recipient, "-")
 
 	// Resolve operator attribution
+	tenantID, hasTenant := s.tenant(r)
+	var actualOperatorName string
+	var actualOperatorID *uuid.UUID
 	var operatorID *uuid.UUID
 	var operatorName string
+	var onBehalfAuditNote string
 	if opIDStr := s.operatorID(r); opIDStr != "" && opIDStr != "api" {
 		if opUUID, err := uuid.Parse(opIDStr); err == nil {
+			actualOperatorID = &opUUID
 			operatorID = &opUUID
-			if tenantID, ok := s.tenant(r); ok && s.Auth != nil {
+			if hasTenant && s.Auth != nil {
 				if op, err := s.Auth.GetOperatorByID(tenantID, opUUID); err == nil {
+					actualOperatorName = op.Name
 					operatorName = op.Name
 				}
 			}
+		}
+	}
+	if req.OnBehalfOperatorID != "" {
+		targetID, err := uuid.Parse(req.OnBehalfOperatorID)
+		if err != nil {
+			writeAPIError(w, 400, "INVALID_REQUEST", "valid on_behalf_operator_id is required")
+			return
+		}
+		if !hasTenant || s.Auth == nil {
+			writeAPIError(w, 403, "FORBIDDEN", "operator attribution unavailable")
+			return
+		}
+		target, err := s.Auth.GetOperatorByID(tenantID, targetID)
+		if err != nil || !target.IsActive {
+			writeAPIError(w, 404, "OPERATOR_NOT_FOUND", "operator not found")
+			return
+		}
+		operatorID = &targetID
+		operatorName = target.Name
+		if req.ConversationID != uuid.Nil && actualOperatorID != nil && actualOperatorID.String() != targetID.String() {
+			auditor := actualOperatorName
+			if auditor == "" {
+				auditor = "Operator"
+			}
+			onBehalfAuditNote = "Sent on behalf: " + auditor + " replied as " + target.Name
 		}
 	}
 
@@ -948,6 +998,9 @@ func (s *Server) sendAPI(w http.ResponseWriter, r *http.Request, host string) {
 		writeAPIError(w, 404, "ACCOUNT_NOT_FOUND", err.Error())
 		return
 	}
+	if onBehalfAuditNote != "" && actualOperatorID != nil {
+		_, _ = s.Platform.AddInternalNote(tenantID, req.ConversationID, domain.ActorSystem, actualOperatorID.String(), onBehalfAuditNote)
+	}
 	WriteJSON(w, 202, map[string]any{"status": "queued", "account": host, "recipient": req.Recipient})
 }
 
@@ -956,14 +1009,16 @@ type OnboardRequest struct {
 }
 
 type SendRequest struct {
-	HostNumber     string             `json:"host_number"`
-	Recipient      string             `json:"recipient"`
-	Message        string             `json:"message"`
-	IsGroup        bool               `json:"is_group"`
-	Type           domain.MessageType `json:"type"`
-	MediaPath      string             `json:"media_path,omitempty"`
-	MediaKey       string             `json:"media_key,omitempty"`
-	ReactionTarget string             `json:"reaction_target,omitempty"`
+	HostNumber         string             `json:"host_number"`
+	ConversationID     uuid.UUID          `json:"conversation_id,omitempty"`
+	Recipient          string             `json:"recipient"`
+	Message            string             `json:"message"`
+	IsGroup            bool               `json:"is_group"`
+	Type               domain.MessageType `json:"type"`
+	MediaPath          string             `json:"media_path,omitempty"`
+	MediaKey           string             `json:"media_key,omitempty"`
+	ReactionTarget     string             `json:"reaction_target,omitempty"`
+	OnBehalfOperatorID string             `json:"on_behalf_operator_id,omitempty"`
 }
 
 func RequireMethod(w http.ResponseWriter, r *http.Request, method string) bool {

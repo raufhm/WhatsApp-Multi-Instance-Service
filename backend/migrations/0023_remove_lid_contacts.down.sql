@@ -1,0 +1,2 @@
+-- Down migration for LID contact cleanup is intentionally a no-op.
+-- Deleted LID contacts, conversations, and messages cannot be restored.

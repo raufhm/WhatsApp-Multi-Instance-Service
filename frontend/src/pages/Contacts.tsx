@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useContacts } from '@/hooks/useInbox'
 import Card from '@/components/ui/card'
@@ -6,11 +6,17 @@ import Button from '@/components/ui/button'
 import { Loader2, Users, AlertCircle, ChevronLeft, ChevronRight, Search, Users2, ArrowRight } from 'lucide-react'
 
 const PAGE_SIZE = 20
+const CONTACT_TYPE_OPTIONS = [
+  { value: 'ALL', label: 'All contacts' },
+  { value: 'GROUP', label: 'Group chats' },
+  { value: 'PERSONAL', label: 'Personal chats' },
+]
 
 const Contacts: React.FC = () => {
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [offset, setOffset] = useState(0)
+  const [contactType, setContactType] = useState('ALL')
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -19,6 +25,10 @@ const Contacts: React.FC = () => {
     }, 300)
     return () => clearTimeout(timer)
   }, [search])
+
+  useEffect(() => {
+    setOffset(0)
+  }, [contactType])
 
   const { data, isLoading, isError, refetch } = useContacts({
     limit: PAGE_SIZE,
@@ -30,6 +40,20 @@ const Contacts: React.FC = () => {
   const total = data?.total ?? 0
   const hasNext = offset + PAGE_SIZE < total
   const hasPrev = offset > 0
+  const sortedContacts = useMemo(() => {
+    const list = [...contacts]
+    return list
+      .filter((c) => {
+        if (contactType === 'GROUP') return !!c.is_group
+        if (contactType === 'PERSONAL') return !c.is_group
+        return true
+      })
+      .sort((a, b) => {
+        const groupDiff = Number(Boolean(b.is_group)) - Number(Boolean(a.is_group))
+        if (groupDiff !== 0) return groupDiff
+        return (a.name || a.number || '').localeCompare(b.name || b.number || '')
+      })
+  }, [contactType, contacts])
 
   return (
     <div>
@@ -44,14 +68,28 @@ const Contacts: React.FC = () => {
       </div>
 
       <Card className="p-4 mb-5">
-        <div className="relative">
-          <Search className="h-4 w-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            className="form-control pl-9 w-full"
-            placeholder="Search by name or number..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+        <div className="space-y-3">
+          <div className="relative">
+            <Search className="h-4 w-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              className="form-control pl-9 w-full"
+              placeholder="Search by name or number..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <select
+            className="form-control w-full"
+            value={contactType}
+            onChange={(e) => setContactType(e.target.value)}
+            aria-label="Filter contact type"
+          >
+            {CONTACT_TYPE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </div>
       </Card>
 
@@ -68,10 +106,12 @@ const Contacts: React.FC = () => {
               Retry
             </Button>
           </div>
-        ) : contacts.length === 0 ? (
+        ) : sortedContacts.length === 0 ? (
           <div className="text-center py-12">
             <Users className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-600">No contacts found.</p>
+            <p className="text-gray-600">
+              {contactType === 'ALL' ? 'No contacts found.' : 'No contacts match this type filter.'}
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -86,7 +126,7 @@ const Contacts: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {contacts.map((c) => (
+                {sortedContacts.map((c) => (
                   <tr key={c.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center gap-3">
@@ -94,7 +134,7 @@ const Contacts: React.FC = () => {
                           {(c.name || c.number || '?').charAt(0).toUpperCase()}
                         </div>
                         <div>
-                          <p className="font-semibold text-gray-900">{c.name || c.number}</p>
+                          <p className="text-gray-900">{c.name || c.number}</p>
                           {c.email && <p className="text-xs text-gray-500">{c.email}</p>}
                         </div>
                       </div>
@@ -146,7 +186,7 @@ const Contacts: React.FC = () => {
         )}
       </Card>
 
-      {!isLoading && !isError && contacts.length > 0 && (
+      {!isLoading && !isError && sortedContacts.length > 0 && (
         <div className="flex items-center justify-between mt-4">
           <p className="text-sm text-gray-500">
             Showing {Math.min(offset + 1, total)}-{Math.min(offset + PAGE_SIZE, total)} of {total}

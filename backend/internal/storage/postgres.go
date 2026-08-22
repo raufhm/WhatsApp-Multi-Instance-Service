@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -267,23 +268,21 @@ func (p *PostgresStore) ListConversations(tenantID uuid.UUID, status string, lim
 	return result, rows.Err()
 }
 
-// ListConversationSummaries returns conversations enriched with the contact's
-// display identity and the most recent non-internal timeline message, deduplicated
-// per contact so that the inbox displays unique contacts. Always scoped by tenant.
+// ListConversationSummaries returns one inbox row per contact, enriched with the
+// latest related conversation and its most recent timeline message. Always scoped
+// by tenant. Multiple tickets for the same contact are intentionally collapsed.
 func (p *PostgresStore) ListConversationSummaries(tenantID uuid.UUID, status string, limit, offset int) ([]domain.ConversationSummary, error) {
-	query := `SELECT id, tenant_id, account_id, contact_id, ticket_number, status, bot_state, started_at, last_activity_at, closed_at, handoff_at, closure_reason, assignee, merged_into_id, created_at, updated_at,
-		contact_name, contact_number, is_group, last_message_preview, last_message_actor
-	FROM (
+	query := `SELECT * FROM (
 		SELECT DISTINCT ON (c.contact_id)
 			c.id, c.tenant_id, c.account_id, c.contact_id, c.ticket_number, c.status, c.bot_state, c.started_at, c.last_activity_at, c.closed_at, c.handoff_at, COALESCE(c.closure_reason, '') AS closure_reason, COALESCE(c.assignee, '') AS assignee, c.merged_into_id, c.created_at, c.updated_at,
-			COALESCE(NULLIF(co.display_name, ''), (SELECT wg.name FROM whatsmeow_groups wg WHERE (wg.group_id = co.provider_address OR wg.group_id || '@g.us' = co.normalized_address OR wg.group_id = co.normalized_address) AND wg.name <> '' LIMIT 1), '') AS contact_name,
-			COALESCE(co.provider_address, '') AS contact_number, co.is_group,
+			COALESCE((SELECT NULLIF(wg.name, '') FROM whatsmeow_groups wg WHERE (wg.group_id = co.provider_address OR wg.group_id || '@g.us' = co.normalized_address OR wg.group_id = co.normalized_address) LIMIT 1), NULLIF(co.display_name, ''), '') AS contact_name,
+			COALESCE(co.provider_address, '') AS contact_number, COALESCE(co.is_group, FALSE) AS is_group,
 			COALESCE(m.content, '') AS last_message_preview, COALESCE(m.actor, '') AS last_message_actor
 		FROM conversations c
 		LEFT JOIN contacts co ON co.id = c.contact_id AND co.tenant_id = c.tenant_id
 		LEFT JOIN LATERAL (
 			SELECT content, actor FROM conversation_messages
-			WHERE conversation_id = c.id AND is_internal = FALSE
+			WHERE conversation_id = c.id
 			ORDER BY provider_timestamp DESC, created_at DESC
 			LIMIT 1
 		) m ON TRUE
@@ -293,9 +292,14 @@ func (p *PostgresStore) ListConversationSummaries(tenantID uuid.UUID, status str
 		query += ` AND c.status=$2`
 		args = append(args, status)
 	}
-	query += ` ORDER BY c.contact_id, c.last_activity_at DESC
-	) sub
-	ORDER BY last_activity_at DESC LIMIT $` + fmt.Sprint(len(args)+1) + ` OFFSET $` + fmt.Sprint(len(args)+2)
+	query += ` ORDER BY c.contact_id, `
+	if status == "" {
+		// The default inbox is active; prefer an active ticket over an older
+		// closed ticket when both exist for the same contact.
+		query += `(c.status = 'CLOSED'), `
+	}
+	query += `c.last_activity_at DESC
+	) inbox ORDER BY last_activity_at DESC LIMIT $` + fmt.Sprint(len(args)+1) + ` OFFSET $` + fmt.Sprint(len(args)+2)
 	args = append(args, limit, offset)
 	rows, err := p.db.Query(query, args...)
 	if err != nil {
@@ -336,7 +340,7 @@ func (p *PostgresStore) ListConversationSummaries(tenantID uuid.UUID, status str
 }
 
 func (p *PostgresStore) GetConversationTimeline(tenantID, conversationID uuid.UUID, limit, offset int) ([]domain.ConversationMessage, error) {
-	rows, err := p.db.Query(`SELECT id, tenant_id, conversation_id, actor, operator_id, COALESCE(operator_name, ''), provider, provider_message_id, direction, content, message_type, COALESCE(media_url,''), status, provider_timestamp, is_internal, created_at, updated_at FROM conversation_messages WHERE tenant_id=$1 AND conversation_id=$2 ORDER BY provider_timestamp, created_at LIMIT $3 OFFSET $4`, tenantID, conversationID, limit, offset)
+	rows, err := p.db.Query(`SELECT id, tenant_id, conversation_id, actor, operator_id, COALESCE(operator_name, ''), provider, provider_message_id, direction, COALESCE(sender_address, ''), COALESCE(reaction_target, ''), content, message_type, COALESCE(media_url,''), status, provider_timestamp, is_internal, created_at, updated_at FROM conversation_messages WHERE tenant_id=$1 AND conversation_id=$2 ORDER BY provider_timestamp, created_at LIMIT $3 OFFSET $4`, tenantID, conversationID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -344,7 +348,31 @@ func (p *PostgresStore) GetConversationTimeline(tenantID, conversationID uuid.UU
 	result := make([]domain.ConversationMessage, 0)
 	for rows.Next() {
 		var m domain.ConversationMessage
-		if err := rows.Scan(&m.ID, &m.TenantID, &m.ConversationID, &m.Actor, &m.OperatorID, &m.OperatorName, &m.Provider, &m.ProviderMessageID, &m.Direction, &m.Content, &m.MessageType, &m.MediaURL, &m.Status, &m.ProviderTimestamp, &m.IsInternal, &m.CreatedAt, &m.UpdatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.TenantID, &m.ConversationID, &m.Actor, &m.OperatorID, &m.OperatorName, &m.Provider, &m.ProviderMessageID, &m.Direction, &m.SenderAddress, &m.ReactionTarget, &m.Content, &m.MessageType, &m.MediaURL, &m.Status, &m.ProviderTimestamp, &m.IsInternal, &m.CreatedAt, &m.UpdatedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, m)
+	}
+	return result, rows.Err()
+}
+
+// GetContactConversationTimeline returns the complete message history across all
+// conversations belonging to a contact, ordered as one chronological timeline.
+func (p *PostgresStore) GetContactConversationTimeline(tenantID, contactID uuid.UUID, limit, offset int) ([]domain.ConversationMessage, error) {
+	rows, err := p.db.Query(`SELECT m.id, m.tenant_id, m.conversation_id, m.actor, m.operator_id, COALESCE(m.operator_name, ''), m.provider, m.provider_message_id, m.direction, COALESCE(m.sender_address, ''), COALESCE(m.reaction_target, ''), m.content, m.message_type, COALESCE(m.media_url,''), m.status, m.provider_timestamp, m.is_internal, m.created_at, m.updated_at
+		FROM conversation_messages m
+		JOIN conversations c ON c.id = m.conversation_id AND c.tenant_id = m.tenant_id
+		WHERE m.tenant_id=$1 AND c.contact_id=$2
+		ORDER BY m.provider_timestamp, m.created_at
+		LIMIT $3 OFFSET $4`, tenantID, contactID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]domain.ConversationMessage, 0)
+	for rows.Next() {
+		var m domain.ConversationMessage
+		if err := rows.Scan(&m.ID, &m.TenantID, &m.ConversationID, &m.Actor, &m.OperatorID, &m.OperatorName, &m.Provider, &m.ProviderMessageID, &m.Direction, &m.SenderAddress, &m.ReactionTarget, &m.Content, &m.MessageType, &m.MediaURL, &m.Status, &m.ProviderTimestamp, &m.IsInternal, &m.CreatedAt, &m.UpdatedAt); err != nil {
 			return nil, err
 		}
 		result = append(result, m)
@@ -407,7 +435,7 @@ func (p *PostgresStore) CreateContactActivity(tenantID, contactID uuid.UUID, inp
 	err := scanActivity(p.db.QueryRow(`INSERT INTO activities (tenant_id, contact_id, conversation_id, type, summary, next_action, priority, due_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 		RETURNING id, tenant_id, conversation_id, contact_id, type, summary, next_action, priority, status, due_at, acknowledged_by, acknowledged_at, created_at, updated_at`,
-					tenantID, contactID, convID, input.Type, input.Summary, input.NextAction, input.Priority, nullTime(input.DueAt)), &a)
+		tenantID, contactID, convID, input.Type, input.Summary, input.NextAction, input.Priority, nullTime(input.DueAt)), &a)
 	return a, err
 }
 
@@ -934,8 +962,13 @@ func (p *PostgresStore) GetContact(tenantID, id uuid.UUID) (domain.Contact, erro
 	var c domain.Contact
 	row := p.db.QueryRow(`SELECT id, tenant_id, normalized_address, provider_address, display_name, is_group, deal_stage_key, deal_stage_id, metadata, created_at, updated_at FROM contacts WHERE tenant_id=$1 AND id=$2`, tenantID, id)
 	err := scanContact(row, &c)
-	if err == nil && c.IsGroup && c.DisplayName == "" {
-		_ = p.db.QueryRow(`SELECT name FROM whatsmeow_groups WHERE (group_id = $1 OR group_id || '@g.us' = $2 OR group_id = $2) AND name <> '' LIMIT 1`, c.ProviderAddress, c.NormalizedAddress).Scan(&c.DisplayName)
+	if err == nil && c.IsGroup {
+		// The provider group record is authoritative. Contact display names may
+		// contain an old JID or a stale fallback from before group metadata sync.
+		var groupName string
+		if lookupErr := p.db.QueryRow(`SELECT name FROM whatsmeow_groups WHERE (group_id = $1 OR group_id || '@g.us' = $2 OR group_id = $2) AND name <> '' LIMIT 1`, c.ProviderAddress, c.NormalizedAddress).Scan(&groupName); lookupErr == nil && groupName != "" {
+			c.DisplayName = groupName
+		}
 	}
 	return c, err
 }
@@ -1163,6 +1196,10 @@ func (p *PostgresStore) ProjectMessage(meta domain.MessageMetadata) error {
 	} else if meta.Direction == domain.Outgoing {
 		address = meta.Recipient
 	}
+	if !meta.IsGroup && conversation.IsLID(address) {
+		log.Printf("skipping LID contact (not a mobile number): %s", address)
+		return nil
+	}
 	actor := domain.ActorContact
 	if meta.Direction == domain.Outgoing {
 		actor = domain.ActorOperator
@@ -1198,13 +1235,9 @@ func (p *PostgresStore) ProjectMessage(meta domain.MessageMetadata) error {
 	if err != nil {
 		return err
 	}
-	if meta.IsGroup {
-		_, _ = tx.Exec(`UPDATE contacts SET display_name = (
-			SELECT wg.name FROM whatsmeow_groups wg
-			WHERE (wg.group_id = $1 OR wg.group_id = $2 OR wg.group_id || '@g.us' = $2) AND wg.name <> ''
-			LIMIT 1
-		) WHERE id = $3 AND (display_name IS NULL OR display_name = '')`, address, normalized, contactID)
-	}
+	// Group names are persisted by UpdateGroup/handleGroupInfo. Do not make
+	// message projection depend on the optional group metadata lookup; a failed
+	// lookup must not abort this transaction and lose the message.
 	var conversationID uuid.UUID
 	err = tx.QueryRow(`INSERT INTO conversations (tenant_id, account_id, contact_id, is_group, started_at, last_activity_at) VALUES ($1,$2,$3,$4,$5,$5)
 		ON CONFLICT DO NOTHING RETURNING id`, tenantID, accountID, contactID, meta.IsGroup, meta.Timestamp).Scan(&conversationID)
@@ -1214,14 +1247,16 @@ func (p *PostgresStore) ProjectMessage(meta domain.MessageMetadata) error {
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(`INSERT INTO conversation_messages (tenant_id, conversation_id, actor, operator_id, operator_name, provider, provider_message_id, direction, content, message_type, media_url, status, provider_timestamp)
-		VALUES ($1,$2,$3,$4,$5,'whatsmeow',$6,$7,$8,$9,$10,$11,$12)
-		ON CONFLICT (tenant_id, provider, provider_message_id) DO UPDATE SET status=CASE WHEN conversation_messages.status='READ' OR (conversation_messages.status='DELIVERED' AND EXCLUDED.status='SENT') THEN conversation_messages.status ELSE EXCLUDED.status END, media_url=COALESCE(EXCLUDED.media_url, conversation_messages.media_url), updated_at=CURRENT_TIMESTAMP`,
-		tenantID, conversationID, actor, meta.OperatorID, meta.OperatorName, providerID, meta.Direction, meta.Content, meta.Type, nullString(meta.MediaURL), meta.Status, meta.Timestamp)
+	// History sync can replay an existing provider message. Updating sender_address
+	// on conflict lets a re-sync backfill this field without creating duplicates.
+	_, err = tx.Exec(`INSERT INTO conversation_messages (tenant_id, conversation_id, actor, operator_id, operator_name, provider, provider_message_id, direction, sender_address, reaction_target, content, message_type, media_url, status, provider_timestamp)
+		VALUES ($1,$2,$3,$4,$5,'whatsmeow',$6,$7,$8,$9,$10,$11,$12,$13,$14)
+		ON CONFLICT (tenant_id, provider, provider_message_id) DO UPDATE SET sender_address=COALESCE(EXCLUDED.sender_address, conversation_messages.sender_address), reaction_target=COALESCE(EXCLUDED.reaction_target, conversation_messages.reaction_target), status=CASE WHEN conversation_messages.status='READ' OR (conversation_messages.status='DELIVERED' AND EXCLUDED.status='SENT') THEN conversation_messages.status ELSE EXCLUDED.status END, media_url=COALESCE(EXCLUDED.media_url, conversation_messages.media_url), updated_at=CURRENT_TIMESTAMP`,
+		tenantID, conversationID, actor, meta.OperatorID, meta.OperatorName, providerID, meta.Direction, nullString(meta.Sender), nullString(meta.ReactionTarget), meta.Content, meta.Type, nullString(meta.MediaURL), meta.Status, meta.Timestamp)
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(`UPDATE conversations SET last_activity_at=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2`, meta.Timestamp, conversationID)
+	_, err = tx.Exec(`UPDATE conversations SET started_at=LEAST(started_at, $1), last_activity_at=GREATEST(last_activity_at, $1), updated_at=CURRENT_TIMESTAMP WHERE id=$2`, meta.Timestamp, conversationID)
 	if err != nil {
 		return err
 	}
@@ -1238,12 +1273,20 @@ func (p *PostgresStore) ProjectMessageContext(meta domain.MessageMetadata) (doma
 	}
 	address := meta.Sender
 	inbound := meta.Direction == domain.Incoming
-	if !inbound {
+	if meta.IsGroup || !inbound {
+		// Group conversations are keyed by the group recipient, while the
+		// sender is the individual participant who authored the message.
 		address = meta.Recipient
 	}
 	server := "s.whatsapp.net"
 	if meta.IsGroup {
 		server = "g.us"
+	} else if conversation.IsLID(address) {
+		// ProjectMessage intentionally ignores unresolved LID contacts because
+		// they are not stable phone-number identities. Keep the bot-context
+		// projection consistent so the same event does not surface a
+		// misleading "sql: no rows" error after being skipped.
+		return domain.ProjectedMessage{}, nil
 	}
 	normalized, err := conversation.NormalizeAddressWithServer(address, server)
 	if err != nil {
@@ -1392,7 +1435,14 @@ func NewPostgresStore(dsn string) (*PostgresStore, error) {
 
 func runMigrations(db *sql.DB) error {
 	log.Println("DB: Starting migrations...")
-	driver, err := postgres.WithInstance(db, &postgres.Config{})
+	schemaName := os.Getenv("PG_SCHEMA")
+	if schemaName == "" {
+		schemaName = "public"
+	}
+	if _, err := db.Exec(fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", schemaName)); err != nil {
+		return fmt.Errorf("create schema: %w", err)
+	}
+	driver, err := postgres.WithInstance(db, &postgres.Config{SchemaName: schemaName})
 	if err != nil {
 		return fmt.Errorf("driver: %w", err)
 	}

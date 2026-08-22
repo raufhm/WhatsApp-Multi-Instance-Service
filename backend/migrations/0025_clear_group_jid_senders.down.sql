@@ -1,0 +1,1 @@
+-- Data cleanup migration; there is no safe rollback for incorrect sender values.

@@ -46,6 +46,25 @@ func NormalizeAddressWithServer(address string, server string) (string, error) {
 	return address, nil
 }
 
+// IsLID reports whether the address is a WhatsApp Line Identifier (LID).
+// LIDs are 15-digit numeric IDs used when a real phone number is not mapped.
+func IsLID(address string) bool {
+	address = strings.TrimSpace(address)
+	if i := strings.IndexByte(address, '@'); i >= 0 {
+		address = address[:i]
+	}
+	address = strings.TrimPrefix(address, "+")
+	if len(address) != 15 {
+		return false
+	}
+	for i := 0; i < len(address); i++ {
+		if address[i] < '0' || address[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 type Service interface {
 	UpsertContact(tenantID uuid.UUID, input domain.ContactUpsert) (domain.Contact, error)
 	FindOrCreateConversation(key domain.ConversationKey, now time.Time) (domain.Conversation, error)

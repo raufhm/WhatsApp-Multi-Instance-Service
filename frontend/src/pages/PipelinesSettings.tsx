@@ -269,12 +269,6 @@ export default function PipelinesSettings() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button variant="primary" size="sm" onClick={handleOpenCreate} className="shadow-sm">
-            <Plus className="h-4 w-4 mr-1.5" />
-            Add Stage
-          </Button>
-        </div>
       </div>
 
       {/* Pipeline Management */}
@@ -438,13 +432,19 @@ export default function PipelinesSettings() {
 
       {/* Stages Table List */}
       <Card className="border border-gray-200/80 shadow-xs overflow-hidden bg-white">
-        <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-gray-700">
-            Configured Deal Stages
-          </h3>
-          <span className="text-xs text-gray-500">
-            Stages appear in order of Sort Order in the contact dropdown and tracker.
-          </span>
+        <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-700">
+              Configured Deal Stages
+            </h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Stages appear in order of Sort Order in the contact dropdown and tracker.
+            </p>
+          </div>
+          <Button variant="primary" size="sm" onClick={handleOpenCreate} className="shadow-sm self-start sm:self-auto">
+            <Plus className="h-4 w-4 mr-1.5" />
+            Add Stage
+          </Button>
         </div>
 
         {isLoading ? (

@@ -1,315 +1,179 @@
 # WhatsApp Multi-Instance Service
 
-whops lets small business teams share WhatsApp access without Meta Business API complexity. Connect your existing WhatsApp (personal or Business app) via QR code, track customer conversations with built-in notes and follow-ups, and collaborate with your team — no developer required.
+> A self-hosted WhatsApp inbox for small teams that want to keep the number customers already know.
 
-Built on top of [whatsmeow](https://github.com/tulir/whatsmeow), this platform stores every message against contacts and conversations, runs a deterministic bot for initial exchanges, and creates follow-up activities for customer service teams.
+This project explores a simple but useful idea: what if a small business could keep its existing WhatsApp number, while letting multiple teammates help answer messages from one shared dashboard?
 
-> **Disclaimer:** Personal portfolio project built for research and development. Using linked WhatsApp accounts (QR-paired) may violate WhatsApp's Terms of Service. Run at your own risk.
+Instead of turning WhatsApp into a giant marketing platform, this project focuses on the day-to-day reality of customer communication:
 
----
+- one familiar number
+- separate logins for teammates
+- one shared inbox
+- notes, follow-ups, and handoffs
+- enough structure to keep conversations moving
 
-## Architecture overview
+It is built for teams that need an operational workspace, not a broadcast cannon.
 
-```
-whatsmeow event → Dispatcher fan-out
-    ├── PostgresStore (raw whatsmeow_* persistence)
-    └── AsyncProjector
-            ├── ProjectMessageContext (contact + conversation + timeline)
-            └── bot.Processor (deterministic rules → WhatsApp queue → BOT timeline entry)
-                        └── on terminal/handoff → CloseConversation → Activity (PENDING)
+> **Disclaimer:** This is a personal open-source research project. Linking accounts through WhatsApp Web/companion protocols may violate WhatsApp's Terms of Service. Use it at your own risk and follow the rules that apply to your account and region.
 
-Outgoing media  → durable upload_jobs row (object key generated once)
-Upload worker   → claims due jobs (FOR UPDATE SKIP LOCKED), S3 upload,
-                  retries with bounded exponential backoff + jitter,
-                  marks COMPLETED/FAILED and attaches the archive URL to the message
+## Why this exists
 
-HTTP API (/api/v1/*)  ← API-key authenticated, tenant-scoped
-Background ticker    → CloseAllTimedOut (every 1 min)
-```
+Many small businesses do not need a full enterprise messaging suite on day one. They need to answer customers faster, keep context in one place, and avoid losing important details across personal phones.
 
-### Key packages
+This project is for that stage.
 
-| Package | Purpose |
-|---|---|
-| `backend/whatsapp/` | Multi-instance transport, outbound queue, `AsyncProjector` |
-| `backend/internal/bot/` | Deterministic rules engine + per-conversation processor |
-| `backend/internal/storage/` | PostgreSQL repositories (raw + application layer) |
-| `backend/internal/conversation/` | Address normalisation utilities |
-| `backend/domain/` | Shared types, interfaces, enums |
-| `backend/handler/` | HTTP server (legacy + `/api/v1` platform API) |
-| `backend/config/` | Environment-variable configuration |
-| `backend/migrations/` | golang-migrate SQL migrations |
+It helps a team:
 
----
+- keep using the WhatsApp number customers already recognize
+- share one inbox across multiple authorized users
+- reply from the same connected number
+- view group names and participants more clearly
+- assign conversations when ownership changes
+- leave internal notes that customers should not see
+- track follow-ups so tasks do not disappear
+- keep basic contact and deal-stage history together
 
-## Lifecycle model
+The goal is not to make WhatsApp louder. The goal is to make the work behind the messages easier.
 
-```
-OPEN → BOT_ACTIVE → WAITING → HANDED_OFF
-                            └→ CLOSED
-```
+## What it is not
 
-Every conversation receives a unique, sequentially-allocated **ticket number** (`TKT-NNNN`).  
-A single **PENDING activity** is created when a session closes (terminal rule, handoff, or timeout); once acknowledged by an operator the activity transitions to `ACKNOWLEDGED`.
+This project is intentionally not a bulk marketing or broadcast tool.
 
-## Reliable media uploads
+It is also not Meta's official Cloud API, and it does not try to replace the BSP ecosystem. If you need approved templates, campaign tooling, or enterprise messaging infrastructure, this is probably not the right fit.
 
-Outgoing media is archived to S3 asynchronously through durable `upload_jobs`. On the send path a job is persisted with a **single object key generated once**; the upload worker claims due jobs atomically (`FOR UPDATE SKIP LOCKED`), uploads, and:
+## What works today
 
-- **success** → `COMPLETED`, the archive URL is persisted and attached to the message;
-- **transient** S3/network error → re-queued (`PENDING`) with exponential backoff + jitter;
-- **permanent** error (e.g. missing config) or hitting `UPLOAD_MAX_ATTEMPTS` → `FAILED`, retaining the last error and attempt count for diagnosis.
+The current build supports:
 
-Because the object key is reused for every attempt, a crash after S3 accepts an upload but before completion is persisted converges to a single archive object on the next attempt. The message is never treated as having an available archive URL until S3 confirms. The worker logs `job`, `message`, `key`, `attempt`, and outcome (never media bytes); the poll loop uses `UPLOAD_*` settings and shuts down gracefully on `SIGINT`/`SIGTERM`.
+- WhatsApp account connection through QR pairing
+- a dashboard for incoming and outgoing conversations
+- sending messages and media
+- direct-chat replies and reactions
+- group chat visibility and participant phone numbers
+- conversation assignment and closing
+- internal notes and follow-ups
+- contacts, conversations, activities, and deal stages
+- simple deterministic rules for first responses and handoffs
 
----
+This is intentionally practical and mostly manual in the right places. A human still makes decisions, but the project gives those decisions a place to live.
 
-## Getting started
+## No AI yet
+
+There is no AI assistant in the product today, by design.
+
+The current focus is on learning the real workflows first: what operators record, where conversations get stuck, and which parts are repetitive enough to improve later. If AI is added in the future, it should support those habits instead of replacing them.
+
+## Tech Stack
+
+- Go backend
+- React dashboard
+- PostgreSQL for persistence
+- `whatsmeow` for WhatsApp connectivity
+- optional S3-compatible storage for media
+
+## Quick Start
 
 ### Prerequisites
 
-- Go ≥ 1.25
-- PostgreSQL ≥ 14
-- AWS S3 bucket (optional — only required for media uploads)
+- Go 1.25 or newer
+- PostgreSQL 14 or newer
+- Docker and Docker Compose, recommended for local runs
+- Optional S3-compatible storage for media durability
 
-### Environment variables
+### Run with Docker Compose
 
-| Variable | Default | Description |
-|---|---|---|
-| `PG_DSN` | *(required)* | PostgreSQL connection string |
-| `PORT` | `8080` | HTTP listen port |
-| `S3_BUCKET` | `""` | S3 bucket name for outgoing media |
-| `BOT_SESSION_TIMEOUT` | `30m` | Idle session timeout before auto-closure |
-| `BOT_FALLBACK_REPLY` | *(generic message)* | Reply when no rule matches |
-| `BOT_RULES_VERSION` | `default` | Version tag stored in `bot_sessions` for audit |
-| `LOG_LEVEL` | `INFO` | Application log verbosity |
-| `UPLOAD_WORKER_ENABLED` | `true` | Enable the retryable S3 upload worker |
-| `UPLOAD_POLL_INTERVAL` | `5s` | Upload worker poll interval |
-| `UPLOAD_MAX_ATTEMPTS` | `5` | Max upload attempts before permanent failure |
-| `UPLOAD_INITIAL_BACKOFF` | `1s` | Initial retry backoff |
-| `UPLOAD_MAX_BACKOFF` | `60s` | Retry backoff cap |
-| `UPLOAD_LEASE` | `60s` | Claim lease; expired leases are reclaimed after a crash |
-| `UPLOAD_JITTER` | `0.2` | Random backoff jitter factor (0 disables) |
-
-### Run locally
+1. Copy the example environment file:
 
 ```sh
-# 1. Apply migrations
-migrate -path ./backend/migrations -database "$PG_DSN" up
-
-# 2. Set environment and start
-export PG_DSN="postgres://user:pass@localhost:5432/whatsapp?sslmode=disable"
-export PORT=8080
-cd backend && go run .
-
-# 3. Pair a WhatsApp account
-# Either via the Operator Dashboard (http://localhost:8080/dashboard -> Accounts -> Link Device)
-# or via the API:
-curl -X POST http://localhost:8080/api/onboard -d '{"email":"you@example.com"}'
-# → scan the QR code printed to stdout / base64 in logs / UI pairing modal
-```
-
-### Run the operator dashboard (frontend)
-
-The dashboard is a Vite + React + TypeScript app in `frontend/`. It is served by
-Go from the embedded `backend/dist/` build at `/dashboard/`.
-
-```sh
-# Build the frontend (produces backend/dist, embedded by the Go binary)
-cd frontend && npm install && npm run build && cd ..
-
-# Start the backend, then open http://localhost:8080/dashboard
-cd backend && go run .
-# (if the frontend isn't built, the server still runs API-only)
-```
-
-For frontend development with hot reload, run the Vite dev server, which proxies
-`/api` and `/dashboard/api` to the Go backend on `:8080`:
-
-```sh
-cd frontend && npm run dev
-# open http://localhost:5173/dashboard
-```
-
-To log in you first need an operator row (see `backend/migrations/0005_operator_dashboard.up.sql`)
-and an `X-Tenant` header pointing at the owning tenant. The login endpoint is
-`POST /dashboard/api/login` with `{ "email": ..., "password": ... }`.
-
-### Docker Compose (recommended for local development)
-
-A `docker-compose.yml` is included that spins up PostgreSQL and the service in one
-command. The frontend is built into the image and migrations run automatically.
-
-```sh
-# Copy the example environment
 cp .env.example .env
+```
 
-# Start everything
+2. Set `PG_DSN` in `.env` to point at your PostgreSQL database.
+
+3. Start the app:
+
+```sh
 docker compose up --build -d
+```
 
-# View logs
+4. Watch logs if you want to confirm everything is healthy:
+
+```sh
 docker compose logs -f app
-
-# Open dashboard
-open http://localhost:8080/dashboard
-
-# Stop
-docker compose down
 ```
 
-The compose file mounts a persistent volume for PostgreSQL and a separate volume
-for WhatsApp session state. Update `.env` to configure S3 credentials if you want
-to enable media uploads.
+Then open:
 
-### Docker image only
+```text
+http://localhost:8080/dashboard
+```
+
+### Build locally
+
+If you prefer running the frontend and backend separately:
 
 ```sh
-# Build and run the image manually
-docker build -t whatsapp-service .
-docker run -e PG_DSN="postgres://..." -p 8080:8080 whatsapp-service
+cd frontend
+npm install
+npm run build
+
+cd ../backend
+go run .
 ```
 
-### Legacy Docker snippet
+The frontend builds into `backend/dist/` and is served by the Go backend.
 
-```sh
-docker build -t whatsapp-service .
-docker run -e PG_DSN="..." -p 8080:8080 whatsapp-service
-```
+## Configuration
 
-All `/api/v1/*` endpoints require a tenant API key, passed as:
-- Header: `X-API-Key: <key>`
-- Bearer: `Authorization: Bearer <key>`
+Start with `.env.example`, then copy it to `.env` and fill in the values you need.
 
-Pagination: `?limit=50&offset=0` (limit 1–100).
+Useful settings include:
 
-### Accounts
+- `PG_DSN` for PostgreSQL
+- `PORT` for the HTTP server
+- `LOG_LEVEL` for logging verbosity
+- `BOT_SESSION_TIMEOUT` for session cleanup behavior
+- `S3_BUCKET` and related settings for optional media storage
 
-```
-GET  /api/v1/accounts               → list linked WhatsApp accounts
-POST /api/v1/accounts/{account}/messages  → enqueue outbound message (202 Queued)
-```
+If `S3_BUCKET` is left empty, media can fall back to local disk storage.
 
-### Contacts
+## Project Status
 
-```
-GET  /api/v1/contacts               → list contacts (paginated)
-GET  /api/v1/contacts/{id}          → contact detail
-```
+This is an early v1 and a personal project, not a polished enterprise platform.
 
-### Conversations / Tickets
+Expect trade-offs around:
 
-```
-GET  /api/v1/conversations          → inbox (optional ?status=OPEN|BOT_ACTIVE|WAITING|HANDED_OFF|CLOSED)
-GET  /api/v1/conversations/{id}     → conversation + message timeline (by UUID or ticket number)
-GET  /api/v1/conversations/{id}/messages  → same as above
-GET  /api/v1/tickets                → alias for /api/v1/conversations
-```
+- WhatsApp protocol changes or rate limits
+- account restrictions or linked-device behavior
+- manual CRM workflows
+- self-hosting and backup responsibility
+- media availability after remote URLs expire
 
-### Activities
+That said, the core goal is stable and clear: help a small team operate the WhatsApp account it already has.
 
-```
-GET  /api/v1/activities             → follow-up queue (optional ?status=PENDING|ACKNOWLEDGED|DISMISSED)
-POST /api/v1/activities/{id}/acknowledge  → idempotent acknowledge (X-Actor header optional)
-```
+## Contributing
 
-### Bot rules
+Contributions, issue reports, and honest feedback are very welcome.
 
-```
-GET  /api/v1/bot-rules                    → list all ruleset versions
-POST /api/v1/bot-rules                    → create a new ruleset version (inactive)
-GET  /api/v1/bot-rules/active             → currently active ruleset
-POST /api/v1/bot-rules/activate?version=N → activate a version (deactivates previous)
-```
+Good places to help:
 
-Rule JSON body: `{ "rules": [{ "name": "...", "pattern": "...", "match": "CONTAINS|EXACT|PREFIX", "response": "...", "terminal": false, "handoff": false }] }`
+- onboarding and setup polish
+- reliability and reconnect handling
+- observability and error reporting
+- tests and regression coverage
+- documentation and examples
+- dashboard UX improvements
 
-### Operator actions
+If you spot a rough edge, feel free to open an issue or send a PR. Even small fixes help a lot.
 
-All endpoints accept an optional `X-Actor` header (defaults to `api`).
+## A Small Note From The Project
 
-```
-POST /api/v1/operator/assign?id=<conv>   → body {"assignee":"name"} assigns operator
-POST /api/v1/operator/handoff?id=<conv>   → body {"reason":"..."} hands off to human
-POST /api/v1/operator/close?id=<conv>     → body {"reason":"..."} closes with reason
-POST /api/v1/operator/reopen?id=<conv>   → reopens a closed conversation
-```
+This started as an experiment in shared WhatsApp operations and has grown into a conversation inbox, a lightweight CRM, and a pile of lessons about group metadata, media expiry, retries, and the limits of building on top of a linked app account.
 
-### Internal notes
+It is not trying to replace every product in the WhatsApp ecosystem.
 
-```
-POST /api/v1/notes?id=<conv>              → body {"content":"note", "actor":"OPERATOR"} adds internal note
-```
+It is trying to be useful to the person who says:
 
-Notes use `is_internal=true` and are never sent to WhatsApp contacts.
+> We already have the number. We already have the customers. We just need the team to work together.
 
-### Conversation merge / split
-
-```
-POST /api/v1/merge                        → body {"source_id":"<uuid>", "target_id":"<uuid>"} merges source into target
-POST /api/v1/split?id=<source>             → body {"message_ids":["uuid",...]} splits messages into new conversation
-GET  /api/v1/audit-logs?limit=&offset=   → operator audit log (newest first)
-```
-
-Merge moves all messages from source to target, closes source with `closure_reason='merged'`. Split creates a new conversation from the same account/contact and moves the specified messages.
-
-### Dashboard
-
-The operator dashboard is served at `/dashboard/` and consumes the `/api/v1/*` API.
-
-```
-GET  /dashboard/inbox          → conversation inbox
-GET  /dashboard/conversations/:id → conversation detail + reply composer
-GET  /dashboard/contacts       → contact directory
-GET  /dashboard/accounts       → WhatsApp account health
-GET  /dashboard/bot-rules       → bot rules versions + editor
-GET  /dashboard/upload-jobs    → outgoing media upload status/failures
-```
-
-### Legacy endpoints (backwards-compatible)
-
-```
-POST /api/onboard       → pair a new WhatsApp account via QR
-POST /api/send          → raw send (no tenant auth)
-GET  /api/bots          → list all paired instances
-GET  /api/bots/detail?host=  → instance detail
-GET  /api/health        → liveness probe
-```
-
-### Error format
-
-```json
-{ "error": "human-readable message", "code": "MACHINE_READABLE_CODE" }
-```
-
----
-
-## Multi-tenancy
-
-Each API key is hashed (SHA-256) and stored in `api_keys.key_hash` — raw keys are never persisted.  
-A tenant is created by inserting a row into `tenants`; API keys and linked WhatsApp accounts then belong to that tenant.  
-Every query is scoped by `tenant_id`; cross-tenant access is structurally impossible at the repository layer.
-
----
-
-## Known limitations / risks
-
-- **WhatsApp policy risk**: linking personal accounts violates WhatsApp ToS; use this for research only.
-- **No Cloud API support** (MVP scope): Meta Business API integration is deferred.
-- **Dashboard is API-first**: a React operator dashboard is served at `/dashboard/`, but some management screens (accounts, bot rules) are still pending.
-- **Large media**: outgoing media is read fully into RAM before upload; streaming is deferred.
-- **No durable work queue**: the bounded async projector drops events when full under sustained load.
-- **`Processor.locks` map** grows unbounded for long-lived processes; future: add eviction.
-
----
-
-## Roadmap
-
-- [x] Configurable bot rules loaded from database / file at runtime
-- [x] Operator dashboard (auth, inbox, conversation detail, ticket actions, activity queue)
-- [ ] Webhook dispatch for inbound events
-- [ ] Human agent hand-off UI
-- [ ] Meta Cloud API transport adapter
-- [ ] AI/LLM-based transcript summarisation
-- [x] Reliable outgoing-media S3 uploads (durable jobs, bounded retries, idempotent keys)
-- [ ] Streaming large-media upload (defer RAM loading)
-- [ ] Retry/dead-letter queue for failed projections
+Built with Go, React, PostgreSQL, and [whatsmeow](https://github.com/tulir/whatsmeow).

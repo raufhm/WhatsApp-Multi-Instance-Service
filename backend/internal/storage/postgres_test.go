@@ -88,7 +88,7 @@ func expectProjectedMessage(mock sqlmock.Sqlmock, meta domain.MessageMetadata, t
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO contacts (tenant_id, normalized_address, provider_address, is_group)")).WithArgs(tenantID, "15551234567@s.whatsapp.net", "15551234567", false).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(contactID.String()))
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO conversations (tenant_id, account_id, contact_id, is_group, started_at, last_activity_at)")).WithArgs(tenantID, accountID, contactID, false, meta.Timestamp).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(conversationID.String()))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO conversation_messages (tenant_id, conversation_id, actor, operator_id, operator_name, provider, provider_message_id")).WithArgs(tenantID, conversationID, domain.ActorContact, nil, "", meta.WhatsappID, meta.Direction, meta.Content, meta.Type, nil, meta.Status, meta.Timestamp).WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE conversations SET last_activity_at=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2")).WithArgs(meta.Timestamp, conversationID).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE conversations SET started_at=LEAST(started_at, $1), last_activity_at=GREATEST(last_activity_at, $1), updated_at=CURRENT_TIMESTAMP WHERE id=$2")).WithArgs(meta.Timestamp, conversationID).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 }
 
@@ -120,7 +120,7 @@ func TestProjectMessageReturningContactReusesActiveConversation(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO conversations (tenant_id, account_id, contact_id, is_group, started_at, last_activity_at)")).WithArgs(tenantID, accountID, contactID, false, now).WillReturnError(sql.ErrNoRows)
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT id FROM conversations WHERE tenant_id=$1 AND account_id=$2 AND contact_id=$3 AND status <> 'CLOSED' FOR UPDATE")).WithArgs(tenantID, accountID, contactID).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(conversationID.String()))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO conversation_messages (tenant_id, conversation_id, actor, operator_id, operator_name, provider, provider_message_id")).WithArgs(tenantID, conversationID, domain.ActorContact, nil, "", "m-2", domain.Incoming, "again", domain.Text, nil, domain.StatusPending, now).WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE conversations SET last_activity_at=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2")).WithArgs(now, conversationID).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE conversations SET started_at=LEAST(started_at, $1), last_activity_at=GREATEST(last_activity_at, $1), updated_at=CURRENT_TIMESTAMP WHERE id=$2")).WithArgs(now, conversationID).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
 	if err := store.ProjectMessage(meta); err != nil {
@@ -151,7 +151,7 @@ func TestProjectMessageDuplicateIsIdempotentAndProtectsReadStatus(t *testing.T) 
 	mock.ExpectQuery(regexp.QuoteMeta("SELECT id FROM conversations WHERE tenant_id=$1 AND account_id=$2 AND contact_id=$3 AND status <> 'CLOSED' FOR UPDATE")).WithArgs(tenantID, accountID, contactID).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(conversationID.String()))
 	messageUpdate := `(?s)` + regexp.QuoteMeta("INSERT INTO conversation_messages (tenant_id, conversation_id, actor, operator_id, operator_name, provider, provider_message_id") + `.*` + regexp.QuoteMeta("ON CONFLICT (tenant_id, provider, provider_message_id) DO UPDATE SET status=CASE WHEN conversation_messages.status='READ' OR (conversation_messages.status='DELIVERED' AND EXCLUDED.status='SENT')")
 	mock.ExpectExec(messageUpdate).WithArgs(tenantID, conversationID, domain.ActorContact, nil, "", "m-1", domain.Incoming, "hello", domain.Text, nil, domain.StatusSent, now).WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE conversations SET last_activity_at=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2")).WithArgs(now, conversationID).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE conversations SET started_at=LEAST(started_at, $1), last_activity_at=GREATEST(last_activity_at, $1), updated_at=CURRENT_TIMESTAMP WHERE id=$2")).WithArgs(now, conversationID).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
 	if err := store.ProjectMessage(meta); err != nil {
@@ -338,13 +338,15 @@ func TestPostgresStore_ListConversationSummaries(t *testing.T) {
 	conversationID := uuid.New()
 	now := time.Now()
 
-	query := `(?s)` + regexp.QuoteMeta(`SELECT id, tenant_id, account_id, contact_id, ticket_number, status, bot_state, started_at, last_activity_at, closed_at, handoff_at, closure_reason, assignee, merged_into_id, created_at, updated_at,`) +
-		`.*` + regexp.QuoteMeta(`DISTINCT ON (c.contact_id)`) +
+	query := `(?s)` + regexp.QuoteMeta(`SELECT * FROM (`) +
+		`.*` + regexp.QuoteMeta(`SELECT DISTINCT ON (c.contact_id)`) +
 		`.*` + regexp.QuoteMeta(`FROM conversations c`) +
 		`.*` + regexp.QuoteMeta(`LEFT JOIN contacts co`) +
 		`.*` + regexp.QuoteMeta(`LEFT JOIN LATERAL`) +
 		`.*` + regexp.QuoteMeta(`WHERE c.tenant_id = $1`) +
-		`.*` + regexp.QuoteMeta(`ORDER BY last_activity_at DESC LIMIT $2 OFFSET $3`)
+		`.*` + regexp.QuoteMeta(`ORDER BY c.contact_id, `) +
+		`.*` + regexp.QuoteMeta(`c.last_activity_at DESC`) +
+		`.*` + regexp.QuoteMeta(`) inbox ORDER BY last_activity_at DESC LIMIT $2 OFFSET $3`)
 
 	mock.ExpectQuery(query).
 		WithArgs(tenantID, 50, 0).
@@ -431,7 +433,7 @@ func TestProjectMessageGroupContactUsesGUsServer(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO contacts (tenant_id, normalized_address, provider_address, is_group)")).WithArgs(tenantID, "120363@g.us", "120363", true).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(contactID.String()))
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO conversations (tenant_id, account_id, contact_id, is_group, started_at, last_activity_at)")).WithArgs(tenantID, accountID, contactID, true, now).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(conversationID.String()))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO conversation_messages (tenant_id, conversation_id, actor, operator_id, operator_name, provider, provider_message_id")).WithArgs(tenantID, conversationID, domain.ActorContact, nil, "", "gm-1", domain.Incoming, "group hello", domain.Text, nil, domain.StatusPending, now).WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE conversations SET last_activity_at=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2")).WithArgs(now, conversationID).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE conversations SET started_at=LEAST(started_at, $1), last_activity_at=GREATEST(last_activity_at, $1), updated_at=CURRENT_TIMESTAMP WHERE id=$2")).WithArgs(now, conversationID).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
 	if err := store.ProjectMessage(meta); err != nil {
@@ -463,7 +465,7 @@ func TestProjectMessagePersonalAndGroupDistinctContacts(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO contacts (tenant_id, normalized_address, provider_address, is_group)")).WithArgs(tenantID, "120363@s.whatsapp.net", "120363", false).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(personalContactID.String()))
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO conversations (tenant_id, account_id, contact_id, is_group, started_at, last_activity_at)")).WithArgs(tenantID, accountID, personalContactID, false, now).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(personalConversationID.String()))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO conversation_messages (tenant_id, conversation_id, actor, operator_id, operator_name, provider, provider_message_id")).WithArgs(tenantID, personalConversationID, domain.ActorContact, nil, "", "pm-1", domain.Incoming, "personal hello", domain.Text, nil, domain.StatusPending, now).WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE conversations SET last_activity_at=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2")).WithArgs(now, personalConversationID).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE conversations SET started_at=LEAST(started_at, $1), last_activity_at=GREATEST(last_activity_at, $1), updated_at=CURRENT_TIMESTAMP WHERE id=$2")).WithArgs(now, personalConversationID).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
 	// 2. Group message with the same numeric prefix
@@ -477,7 +479,7 @@ func TestProjectMessagePersonalAndGroupDistinctContacts(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO contacts (tenant_id, normalized_address, provider_address, is_group)")).WithArgs(tenantID, "120363@g.us", "120363", true).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(groupContactID.String()))
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO conversations (tenant_id, account_id, contact_id, is_group, started_at, last_activity_at)")).WithArgs(tenantID, accountID, groupContactID, true, now).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(groupConversationID.String()))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO conversation_messages (tenant_id, conversation_id, actor, operator_id, operator_name, provider, provider_message_id")).WithArgs(tenantID, groupConversationID, domain.ActorContact, nil, "", "gm-1", domain.Incoming, "group hello", domain.Text, nil, domain.StatusPending, now).WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectExec(regexp.QuoteMeta("UPDATE conversations SET last_activity_at=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2")).WithArgs(now, groupConversationID).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(regexp.QuoteMeta("UPDATE conversations SET started_at=LEAST(started_at, $1), last_activity_at=GREATEST(last_activity_at, $1), updated_at=CURRENT_TIMESTAMP WHERE id=$2")).WithArgs(now, groupConversationID).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
 	if err := store.ProjectMessage(personalMeta); err != nil {

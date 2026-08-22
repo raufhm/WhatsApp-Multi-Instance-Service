@@ -13,8 +13,12 @@ type Config struct {
 	PGDSN string
 	// PORT — HTTP listen port (default: 8080).
 	Port string
-	// S3_BUCKET — AWS S3 bucket for outgoing media (optional).
+	// S3_BUCKET — S3-compatible bucket for outgoing media (optional; enables S3 storage).
 	S3Bucket string
+	// S3_ENDPOINT — custom S3-compatible endpoint (e.g. Cloudflare R2).
+	S3Endpoint string
+	// S3_REGION — region for the S3-compatible endpoint (R2 uses "auto").
+	S3Region string
 	// S3_OBJECT_URL — public/CDN base URL for S3 media objects (e.g. https://cdn.example.com or https://bucket.s3.region.amazonaws.com).
 	S3ObjectURL string
 	// MEDIA_DIR — local disk storage directory when S3 is not configured (default: ./media).
@@ -85,6 +89,8 @@ func LoadConfig() (Config, error) {
 		Port:                 viper.GetString("PORT"),
 		PGDSN:                viper.GetString("PG_DSN"),
 		S3Bucket:             viper.GetString("S3_BUCKET"),
+		S3Endpoint:           viper.GetString("S3_ENDPOINT"),
+		S3Region:             viper.GetString("S3_REGION"),
 		S3ObjectURL:          viper.GetString("S3_OBJECT_URL"),
 		MediaDir:             viper.GetString("MEDIA_DIR"),
 		BotSessionTimeout:    timeout,

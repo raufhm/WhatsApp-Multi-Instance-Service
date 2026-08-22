@@ -26,6 +26,7 @@ import {
   uploadJobsRoute,
   setupWizardRoute,
   totpSettingsRoute,
+  monitoringRoute,
 } from './authenticated'
 
 const routeTree = rootRoute.addChildren([
@@ -52,6 +53,7 @@ const routeTree = rootRoute.addChildren([
     uploadJobsRoute,
     setupWizardRoute,
     totpSettingsRoute,
+    monitoringRoute,
   ]),
 ])
 

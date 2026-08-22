@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
@@ -48,11 +49,22 @@ func main() {
 	var s3Store *storage.S3Storage
 
 	if config.S3Bucket != "" {
-		awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
+		awsCfgOpts := []func(*awsconfig.LoadOptions) error{}
+		if config.S3Region != "" {
+			awsCfgOpts = append(awsCfgOpts, awsconfig.WithRegion(config.S3Region))
+		}
+		awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsCfgOpts...)
 		if err != nil {
 			log.Fatalf("AWS config error: %v", err)
 		}
-		s3Client := s3.NewFromConfig(awsCfg)
+		s3Opts := []func(*s3.Options){}
+		if config.S3Endpoint != "" {
+			s3Opts = append(s3Opts, func(o *s3.Options) {
+				o.BaseEndpoint = aws.String(config.S3Endpoint)
+				o.UsePathStyle = true
+			})
+		}
+		s3Client := s3.NewFromConfig(awsCfg, s3Opts...)
 		s3Store = storage.NewS3Storage(s3Client, config.S3Bucket)
 		mediaStore = s3Store
 	} else {
@@ -159,6 +171,7 @@ func main() {
 		Broadcaster: monitorBroadcaster,
 	}
 	http.Handle("/dashboard/api/accounts", handler.DashboardSessionMiddleware(pgStore, dashboardAPI))
+	http.Handle("/dashboard/api/accounts/", handler.DashboardSessionMiddleware(pgStore, dashboardAPI))
 	http.Handle("/dashboard/api/pairing", handler.DashboardSessionMiddleware(pgStore, dashboardAPI))
 	http.Handle("/dashboard/api/pairing/", handler.DashboardSessionMiddleware(pgStore, dashboardAPI))
 	http.Handle("/dashboard/api/bot-rules", handler.DashboardSessionMiddleware(pgStore, dashboardAPI))
@@ -182,9 +195,9 @@ func main() {
 		config.Port, config.BotSessionTimeout, config.BotRulesVersion, config.LogLevel, uploadManager != nil && config.UploadWorkerEnabled)
 	server := &http.Server{Addr: ":" + config.Port, Handler: nil,
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout: 30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout: 60 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 	go func() {
 		<-ctx.Done()

@@ -9,7 +9,7 @@ export type ConversationStatus =
 
 export type Actor = 'CONTACT' | 'BOT' | 'OPERATOR' | 'SYSTEM'
 export type Direction = 'INCOMING' | 'OUTGOING'
-export type MessageType = 'TEXT' | 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT'
+export type MessageType = 'TEXT' | 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT' | 'REACTION'
 
 export interface Conversation {
   id: string
@@ -48,7 +48,9 @@ export interface ConversationMessage {
   operator_name?: string | null
   provider: string
   provider_message_id: string
+  reaction_target?: string | null
   direction: Direction
+  sender_address?: string | null
   content: string
   message_type: MessageType
   media_url: string

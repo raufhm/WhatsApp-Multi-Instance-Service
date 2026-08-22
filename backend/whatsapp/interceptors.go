@@ -58,13 +58,16 @@ func (a *AsyncProjector) run() {
 	}
 }
 func (a *AsyncProjector) retryMessage(m domain.MessageMetadata) {
+	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
-		if err := a.projectMessage(m); err == nil {
+		err := a.projectMessage(m)
+		if err == nil {
 			return
 		}
+		lastErr = err
 		time.Sleep(time.Duration(attempt+1) * 25 * time.Millisecond)
 	}
-	log.Printf("application message projection failed: %s", m.WhatsappID)
+	log.Printf("application message projection failed: %s error=%v", m.WhatsappID, lastErr)
 }
 
 func (a *AsyncProjector) projectMessage(m domain.MessageMetadata) error {
@@ -140,6 +143,7 @@ func (l *LoggerDispatcher) UpdateInstanceStatus(hostID string, status domain.Ins
 	log.Printf("STATUS [%s]: %s", hostID, status)
 }
 
-func (l *LoggerDispatcher) UpdateGroup(group domain.GroupInfo) {
-	log.Printf("GROUP UPDATE: %s (%s)", group.Name, group.GroupID)
+func (l *LoggerDispatcher) UpdateGroup(domain.GroupInfo) {
+	// Group metadata is persisted by the storage dispatcher; do not emit
+	// noisy duplicate startup logs when reconnect and group events overlap.
 }

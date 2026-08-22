@@ -1,31 +1,21 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import Card from '@/components/ui/card'
-import Button from '@/components/ui/button'
 import {
   useDashboardAccounts,
 } from '@/hooks/useDashboard'
 import {
   useMonitoringStatus,
-  useMonitoringStatusEvents,
   useMonitoringMetrics,
-  useMonitoringEvents,
   useMonitoringQueueDepth,
-  useMonitoringStream,
 } from '@/hooks/useMonitoring'
 import {
   Activity,
-  AlertCircle,
   CheckCircle2,
   ChevronDown,
-  Database,
   Loader2,
-  Pause,
-  Play,
-  RefreshCw,
-  ShieldAlert,
   Signal,
+  Smartphone,
   Timer,
-  Trash2,
   Wifi,
   WifiOff,
 } from 'lucide-react'
@@ -39,51 +29,12 @@ interface AccountWithHealth {
   queue_size: number
 }
 
-const statusBadgeCls = (status: string) => {
-  switch (status) {
-    case 'ONLINE':
-      return 'bg-green-100 text-green-800'
-    case 'OFFLINE':
-      return 'bg-red-100 text-red-800'
-    case 'ERROR':
-      return 'bg-amber-100 text-amber-800'
-    default:
-      return 'bg-gray-100 text-gray-700'
-  }
-}
-
-const eventTypeColor = (eventType: string) => {
-  if (eventType === 'MESSAGE_IN') return 'text-blue-600'
-  if (eventType === 'MESSAGE_OUT') return 'text-emerald-600'
-  if (eventType === 'STATUS') return 'text-purple-600'
-  if (eventType === 'RECEIPT') return 'text-cyan-600'
-  if (eventType === 'QUEUE_DEPTH') return 'text-gray-600'
-  return 'text-red-600'
-}
-
-const eventLabel = (eventType: string, payload: Record<string, unknown> | null): string => {
-  const p = payload ?? {}
-  switch (eventType) {
-    case 'MESSAGE_IN':
-      return `IN ${p.type ?? 'text'}${p.status ? ` · ${p.status}` : ''}`
-    case 'MESSAGE_OUT':
-      return `OUT ${p.type ?? 'text'}${p.status ? ` · ${p.status}` : ''}`
-    case 'STATUS':
-      return `STATUS ${p.status ?? ''}${p.message ? ` · ${p.message}` : ''}`
-    case 'RECEIPT':
-      return `RECEIPT ${p.status ?? ''}`
-    case 'QUEUE_DEPTH':
-      return `QUEUE_DEPTH ${p.queue_size ?? 0}`
-    case 'SEND_ERROR':
-    case 'MEDIA_ERROR':
-    case 'UPLOAD_FAILED':
-    case 'PROJECTION_FAILED':
-    case 'LOGGED_OUT':
-      return `${eventType}${p.error ? ` · ${String(p.error)}` : ''}`
-    default:
-      return eventType
-  }
-}
+const WINDOWS = [
+  { label: '1h', value: '1h' },
+  { label: '6h', value: '6h' },
+  { label: '24h', value: '24h' },
+  { label: '7d', value: '7d' },
+]
 
 function formatRelative(iso: string | undefined | null): string {
   if (!iso) return '—'
@@ -104,12 +55,18 @@ function formatDateTime(iso: string | undefined | null): string {
   return new Date(iso).toLocaleString()
 }
 
-const WINDOWS = [
-  { label: '1h', value: '1h' },
-  { label: '6h', value: '6h' },
-  { label: '24h', value: '24h' },
-  { label: '7d', value: '7d' },
-]
+const statusBadgeCls = (status: string) => {
+  switch (status) {
+    case 'ONLINE':
+      return 'bg-green-100 text-green-800'
+    case 'OFFLINE':
+      return 'bg-red-100 text-red-800'
+    case 'ERROR':
+      return 'bg-amber-100 text-amber-800'
+    default:
+      return 'bg-gray-100 text-gray-700'
+  }
+}
 
 // ── Account Dropdown ────────────────────────────────────────────────────────
 
@@ -192,7 +149,7 @@ function AccountDropdown({
   )
 }
 
-// ── Main Monitoring Page ────────────────────────────────────────────────────
+// ── Main Monitoring Page ────────────────────────────────────────────────────────
 
 const Monitoring: React.FC = () => {
   const {
@@ -204,8 +161,6 @@ const Monitoring: React.FC = () => {
 
   const [selectedHost, setSelectedHost] = useState<string | null>(null)
   const [windowValue, setWindowValue] = useState('24h')
-  const [filter, setFilter] = useState<Set<string>>(new Set())
-  const [paused, setPaused] = useState(false)
 
   const accountList = accounts as AccountWithHealth[]
 
@@ -220,32 +175,8 @@ const Monitoring: React.FC = () => {
   }, [accountList])
 
   const { data: status } = useMonitoringStatus(selectedHost)
-  const { data: statusEvents = [], isLoading: loadingStatusEvents } = useMonitoringStatusEvents(selectedHost)
   const { data: metrics, isLoading: loadingMetrics } = useMonitoringMetrics(selectedHost, windowValue)
-  const { data: errors = [], isLoading: loadingErrors } = useMonitoringEvents(selectedHost)
   const { data: queueDepth = [], isLoading: loadingQueue } = useMonitoringQueueDepth(selectedHost)
-  const { events: tailEvents, connected: tailConnected, error: tailError, clear: clearTail } = useMonitoringStream(selectedHost)
-
-  const NON_ERROR_TAIL_TYPES = ['MESSAGE_IN', 'MESSAGE_OUT', 'RECEIPT', 'STATUS', 'QUEUE_DEPTH'] as const
-
-  const visibleTailEvents = useMemo(() => {
-    if (filter.size === 0) return tailEvents
-    return tailEvents.filter(ev => {
-      if (filter.has('ERROR') && !(NON_ERROR_TAIL_TYPES as readonly string[]).includes(ev.event_type)) {
-        return true
-      }
-      return filter.has(ev.event_type)
-    })
-  }, [tailEvents, filter])
-
-  const toggleFilter = useCallback((eventType: string) => {
-    setFilter(prev => {
-      const next = new Set(prev)
-      if (next.has(eventType)) next.delete(eventType)
-      else next.add(eventType)
-      return next
-    })
-  }, [])
 
   const chartMax = useMemo(() => {
     const all = (metrics?.buckets ?? []).flatMap(b => [b.inbound, b.outbound])
@@ -256,9 +187,6 @@ const Monitoring: React.FC = () => {
     return Math.max(1, ...queueDepth.map(s => s.queue_size))
   }, [queueDepth])
 
-  const isForbidden = (accountsError as unknown as { response?: { status?: number } } | null)?.response?.status === 403
-
-  // Count online accounts for the overview
   const onlineCount = accountList.filter(a => a.is_connected).length
   const offlineCount = accountList.length - onlineCount
 
@@ -271,21 +199,16 @@ const Monitoring: React.FC = () => {
   }
 
   if (accountsError) {
-    return isForbidden ? (
-      <Card className="p-12 text-center max-w-lg mx-auto">
-        <ShieldAlert className="h-12 w-12 text-amber-500 mx-auto mb-3" />
-        <h3 className="text-lg font-semibold text-gray-900">You don't have permission to view monitoring</h3>
-        <p className="text-sm text-gray-500 mt-1 max-w-sm mx-auto">
-          Contact an administrator to request access.
-        </p>
-      </Card>
-    ) : (
+    return (
       <div className="text-center py-12 text-red-500">
-        <AlertCircle className="h-12 w-12 mx-auto mb-3" />
         <p>Failed to load accounts.</p>
-        <Button variant="primary" size="sm" className="mt-4" onClick={() => refetchAccounts()}>
+        <button
+          type="button"
+          onClick={() => refetchAccounts()}
+          className="mt-4 px-3 py-1.5 text-sm bg-primary-600 text-white rounded-md hover:bg-primary-700"
+        >
           Retry
-        </Button>
+        </button>
       </div>
     )
   }
@@ -293,7 +216,7 @@ const Monitoring: React.FC = () => {
   if (accountList.length === 0) {
     return (
       <Card className="p-12 text-center max-w-lg mx-auto">
-        <Database className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+        <Smartphone className="h-12 w-12 text-gray-300 mx-auto mb-3" />
         <h3 className="text-lg font-semibold text-gray-900">No WhatsApp accounts linked</h3>
         <p className="text-sm text-gray-500 mt-1">
           Pair a WhatsApp number to start monitoring its activity.
@@ -308,7 +231,7 @@ const Monitoring: React.FC = () => {
       <div className="flex items-center justify-between mb-5">
         <div>
           <h1 className="text-xl font-semibold text-gray-900">Monitoring</h1>
-          <p className="text-[13px] text-gray-600">Live tail, status history, and metrics per WhatsApp account</p>
+          <p className="text-[13px] text-gray-600">Live metrics per WhatsApp account</p>
         </div>
         <AccountDropdown
           accounts={accountList}
@@ -354,7 +277,7 @@ const Monitoring: React.FC = () => {
         </div>
       </div>
 
-      {/* Status overview cards */}
+      {/* Status summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
         <Card className="p-4">
           <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
@@ -404,35 +327,8 @@ const Monitoring: React.FC = () => {
         </Card>
       </div>
 
-      {/* Status history + metrics */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
-        <Card className="p-4">
-          <h3 className="text-sm font-semibold text-gray-900 mb-3">Status History</h3>
-          {loadingStatusEvents ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-primary-500" />
-            </div>
-          ) : statusEvents.length === 0 ? (
-            <p className="text-sm text-gray-500 py-6 text-center">No status transitions recorded yet.</p>
-          ) : (
-            <ul className="space-y-2 max-h-64 overflow-y-auto">
-              {statusEvents.map((ev) => (
-                <li key={ev.id} className="flex items-center justify-between gap-2 text-sm">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className={`shrink-0 px-2 py-0.5 rounded-full text-[11px] font-medium ${statusBadgeCls(ev.status)}`}>
-                      {ev.status}
-                    </span>
-                    {ev.message && <span className="text-gray-500 truncate text-xs">{ev.message}</span>}
-                  </div>
-                  <span className="text-xs text-gray-400 shrink-0" title={formatDateTime(ev.occurred_at)}>
-                    {formatRelative(ev.occurred_at)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-
+      {/* Metrics graphs */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card className="p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-gray-900">Message Volume</h3>
@@ -497,10 +393,7 @@ const Monitoring: React.FC = () => {
             </>
           )}
         </Card>
-      </div>
 
-      {/* Queue depth + errors */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
         <Card className="p-4">
           <h3 className="text-sm font-semibold text-gray-900 mb-1">Queue Depth</h3>
           <p className="text-xs text-gray-500 mb-3">Current pending: <b className="text-gray-800">{status?.queue_size ?? 0}</b></p>
@@ -523,100 +416,7 @@ const Monitoring: React.FC = () => {
             </div>
           )}
         </Card>
-
-        <Card className="p-4">
-          <h3 className="text-sm font-semibold text-gray-900 mb-3">Errors & Warnings</h3>
-          {loadingErrors ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-primary-500" />
-            </div>
-          ) : errors.length === 0 ? (
-            <p className="text-sm text-gray-500 py-6 text-center">No errors or warnings recorded.</p>
-          ) : (
-            <ul className="space-y-2 max-h-64 overflow-y-auto">
-              {errors.map((ev) => (
-                <li key={ev.id} className="flex items-start justify-between gap-2 text-sm">
-                  <span className="truncate text-xs text-red-600">{eventLabel(ev.event_type, ev.payload)}</span>
-                  <span className="text-xs text-gray-400 shrink-0" title={formatDateTime(ev.occurred_at)}>
-                    {formatRelative(ev.occurred_at)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
       </div>
-
-      {/* Live event tail */}
-      <Card className="p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-gray-900">Live Event Tail</h3>
-            <span
-              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${
-                tailConnected ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-              }`}
-            >
-              {tailConnected ? (
-                <>
-                  <Wifi className="h-3 w-3" /> Live
-                </>
-              ) : (
-                <>
-                  <WifiOff className="h-3 w-3" /> Reconnecting
-                </>
-              )}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="secondary" size="sm" onClick={() => setPaused(p => !p)}>
-              {paused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
-              {paused ? 'Resume' : 'Pause'}
-            </Button>
-            <Button variant="ghost" size="sm" onClick={clearTail}>
-              <Trash2 className="h-3.5 w-3.5" />
-              Clear
-            </Button>
-          </div>
-        </div>
-
-        {tailError && (
-          <div className="mb-3 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 flex items-center gap-2">
-            <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-            {tailError}
-          </div>
-        )}
-
-        <div className="flex flex-wrap gap-2 mb-3">
-          {(['MESSAGE_IN', 'MESSAGE_OUT', 'RECEIPT', 'STATUS', 'QUEUE_DEPTH', 'ERROR'] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => toggleFilter(t)}
-              className={`px-2 py-1 text-[11px] rounded-md font-medium ${
-                filter.has(t) ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              {t === 'ERROR' ? 'Errors' : t}
-            </button>
-          ))}
-        </div>
-
-        <div className="bg-gray-950 rounded-lg p-3 h-80 overflow-y-auto font-mono text-[12px] leading-6">
-          {visibleTailEvents.length === 0 ? (
-            <p className="text-gray-500 text-center py-10">Waiting for events…</p>
-          ) : (
-            visibleTailEvents.map((ev) => (
-              <div key={`${ev.id}-${ev.occurred_at}`} className="flex gap-2 items-baseline">
-                <span className="text-gray-500 shrink-0">
-                  {new Date(ev.occurred_at).toLocaleTimeString(navigator.language || 'en-US', { hour12: false })}
-                </span>
-                <span className={`font-semibold shrink-0 ${eventTypeColor(ev.event_type)}`}>{ev.event_type}</span>
-                <span className="text-gray-300 truncate">{eventLabel(ev.event_type, ev.payload)}</span>
-              </div>
-            ))
-          )}
-        </div>
-      </Card>
     </div>
   )
 }

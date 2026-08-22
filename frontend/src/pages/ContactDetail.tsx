@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { useParams, Link } from '@tanstack/react-router'
 import {
   useContact,
@@ -9,6 +9,7 @@ import {
   useDealStages,
   usePipelines,
 } from '@/hooks/useInbox'
+import { useDashboardAccounts } from '@/hooks/useDashboard'
 import { DealPipelineTracker, StageIcon } from '@/components/DealPipelineTracker'
 import { SummaryFeed } from '@/components/SummaryFeed'
 import Button from '@/components/ui/button'
@@ -247,6 +248,7 @@ export const ContactDetail: React.FC = () => {
     isError: conversationsError,
     refetch: refetchConversations,
   } = useContactConversations(contactId)
+  const { data: accountsData } = useDashboardAccounts()
   const createActivity = useCreateContactActivity(contactId)
   const updateContact = useUpdateContact(contactId)
   const { data: fieldDefinitions = [] } = useContactFieldDefinitions()
@@ -262,6 +264,15 @@ export const ContactDetail: React.FC = () => {
   const [editDealStageKey, setEditDealStageKey] = useState('')
   const [editDealStageId, setEditDealStageId] = useState('')
   const [customValues, setCustomValues] = useState<Record<string, unknown>>({})
+  const accounts = Array.isArray(accountsData) ? accountsData : []
+
+  const accountNameById = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const account of accounts as any[]) {
+      map.set(account.id, account.display_name || account.host_id || account.id)
+    }
+    return map
+  }, [accounts])
 
   React.useEffect(() => {
     if (contact) {
@@ -814,6 +825,7 @@ export const ContactDetail: React.FC = () => {
                       <thead className="bg-gray-50/70">
                         <tr>
                           <th className="px-4 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Ticket #</th>
+                          <th className="px-4 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Channel</th>
                           <th className="px-4 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Status</th>
                           <th className="px-4 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Assignee</th>
                           <th className="px-4 py-2 text-left text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Started</th>
@@ -825,6 +837,9 @@ export const ContactDetail: React.FC = () => {
                         {conversations.map((c: Conversation) => (
                           <tr key={c.id} className="hover:bg-gray-50/70 transition-colors">
                             <td className="px-4 py-2.5 whitespace-nowrap text-xs font-semibold text-gray-900">#{c.ticket_number}</td>
+                            <td className="px-4 py-2.5 whitespace-nowrap text-xs text-gray-600">
+                              {accountNameById.get(c.account_id) || c.account_id}
+                            </td>
                             <td className="px-4 py-2.5 whitespace-nowrap text-xs">
                               <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${statusBadgeStyles[c.status] || 'bg-gray-100 text-gray-700'}`}>{c.status.replace(/_/g, ' ')}</span>
                             </td>

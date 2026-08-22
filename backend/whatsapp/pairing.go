@@ -166,7 +166,7 @@ func (p *PairingManager) Start(tenantID uuid.UUID, displayName string) (string, 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	device := p.manager.Container.NewDevice()
-	client := whatsmeow.NewClient(device, waLog.Stdout("Pairing", "WARN", true))
+	client := whatsmeow.NewClient(device, waLog.Stdout("Pairing", "ERROR", true))
 
 	qrChan, err := client.GetQRChannel(ctx)
 	if err != nil {

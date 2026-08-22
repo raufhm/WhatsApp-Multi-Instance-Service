@@ -9,10 +9,10 @@ import (
 
 // conversationMessageColumns lists the conversation_messages projection columns
 // in scan order, with COALESCE so nullable media_url and operator_name scan into strings.
-const conversationMessageColumns = `id, tenant_id, conversation_id, actor, operator_id, COALESCE(operator_name, ''), provider, provider_message_id, direction, content, message_type, COALESCE(media_url,''), status, provider_timestamp, created_at, updated_at, is_internal`
+const conversationMessageColumns = `id, tenant_id, conversation_id, actor, operator_id, COALESCE(operator_name, ''), provider, provider_message_id, direction, COALESCE(sender_address, ''), COALESCE(reaction_target, ''), content, message_type, COALESCE(media_url,''), status, provider_timestamp, created_at, updated_at, is_internal`
 
 func scanConversationMessage(row scanner, m *domain.ConversationMessage) error {
-	return row.Scan(&m.ID, &m.TenantID, &m.ConversationID, &m.Actor, &m.OperatorID, &m.OperatorName, &m.Provider, &m.ProviderMessageID, &m.Direction, &m.Content, &m.MessageType, &m.MediaURL, &m.Status, &m.ProviderTimestamp, &m.CreatedAt, &m.UpdatedAt, &m.IsInternal)
+	return row.Scan(&m.ID, &m.TenantID, &m.ConversationID, &m.Actor, &m.OperatorID, &m.OperatorName, &m.Provider, &m.ProviderMessageID, &m.Direction, &m.SenderAddress, &m.ReactionTarget, &m.Content, &m.MessageType, &m.MediaURL, &m.Status, &m.ProviderTimestamp, &m.CreatedAt, &m.UpdatedAt, &m.IsInternal)
 }
 
 // AddInternalNote records an operator note on the conversation timeline without

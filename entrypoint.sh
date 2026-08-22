@@ -1,16 +1,8 @@
 #!/bin/sh
 set -e
 
-# Wait for PostgreSQL to be ready
-until pg_isready -h db -p 5432 -U whatsapp; do
-  echo "Waiting for PostgreSQL..."
-  sleep 1
-done
+# Migrations are handled programmatically by the application when APP_ENV=dev.
+# Production deployments should run migrations via the CI/CD pipeline.
 
-# Run migrations
-echo "Running migrations..."
-migrate -path ./migrations -database "$PG_DSN" -verbose up || true
-
-# Start the application
 echo "Starting application..."
 exec "$@"

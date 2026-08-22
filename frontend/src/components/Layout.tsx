@@ -3,6 +3,7 @@ import { Link, useNavigate, useLocation } from '@tanstack/react-router'
 import { useAuth } from '@/hooks/useAuth'
 import { Button } from '@/components/ui/button'
 import {
+  Activity,
   Menu,
   X,
   LogOut,
@@ -38,6 +39,7 @@ const allNavigation: NavItem[] = [
   { name: 'Inbox', href: '/inbox', icon: MessageSquare },
   { name: 'Contacts', href: '/contacts', icon: Users },
   { name: 'Channels', href: '/accounts', icon: Smartphone },
+  { name: 'Monitoring', href: '/monitoring', icon: Activity },
   {
     name: 'Settings',
     href: '/settings',
@@ -208,7 +210,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
       {/* Sidebar (desktop) and Mobile sidebar */}
       <div
-        className={`fixed inset-y-0 left-0 z-30 ${sidebarWidthClass} bg-[#1c1917] text-gray-400 border-r border-white/5 transform ${
+        className={`fixed inset-y-0 left-0 z-30 ${sidebarWidthClass} bg-slate-800 text-gray-300 border-r border-white/5 transform ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         } transition-all duration-300 ease-in-out lg:translate-x-0`}
       >

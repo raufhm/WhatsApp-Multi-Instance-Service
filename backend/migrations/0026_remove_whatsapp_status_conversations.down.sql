@@ -1,0 +1,1 @@
+-- Historical WhatsApp Status conversations cannot be restored safely.
