@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/raufhm/whatsapp-testing/domain"
+	"github.com/raufhm/whops/domain"
 )
 
 // RecordMediaObject records a newly stored media file for the tenant.

@@ -7,7 +7,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/google/uuid"
-	"github.com/raufhm/whatsapp-testing/internal/totp"
+	"github.com/raufhm/whops/internal/totp"
 	"golang.org/x/crypto/bcrypt"
 )
 

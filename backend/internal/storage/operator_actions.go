@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/raufhm/whatsapp-testing/domain"
+	"github.com/raufhm/whops/domain"
 )
 
 // conversationColumns lists the conversation projection columns in scan order.

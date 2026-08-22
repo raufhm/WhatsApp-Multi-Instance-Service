@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/raufhm/whatsapp-testing/domain"
+	"github.com/raufhm/whops/domain"
 )
 
 var ErrInvalidAddress = errors.New("invalid WhatsApp address")

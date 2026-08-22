@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/raufhm/whatsapp-testing/domain"
+	"github.com/raufhm/whops/domain"
 )
 
 // ValidateBotRules checks rule configuration before activation. Each rule must

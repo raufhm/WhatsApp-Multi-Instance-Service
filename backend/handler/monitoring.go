@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/raufhm/whatsapp-testing/domain"
-	"github.com/raufhm/whatsapp-testing/internal/broadcast"
+	"github.com/raufhm/whops/domain"
+	"github.com/raufhm/whops/internal/broadcast"
 )
 
 const sseHeartbeatInterval = 20 * time.Second

@@ -1,4 +1,4 @@
-module github.com/raufhm/whatsapp-testing
+module github.com/raufhm/whops
 
 go 1.25.0
 

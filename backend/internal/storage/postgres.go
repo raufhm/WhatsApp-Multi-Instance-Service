@@ -19,9 +19,9 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/raufhm/whatsapp-testing/domain"
-	"github.com/raufhm/whatsapp-testing/internal/broadcast"
-	"github.com/raufhm/whatsapp-testing/internal/conversation"
+	"github.com/raufhm/whops/domain"
+	"github.com/raufhm/whops/internal/broadcast"
+	"github.com/raufhm/whops/internal/conversation"
 )
 
 type PostgresStore struct {

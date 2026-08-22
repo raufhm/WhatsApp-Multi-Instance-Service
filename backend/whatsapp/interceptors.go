@@ -5,8 +5,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/raufhm/whatsapp-testing/domain"
-	"github.com/raufhm/whatsapp-testing/internal/bot"
+	"github.com/raufhm/whops/domain"
+	"github.com/raufhm/whops/internal/bot"
 )
 
 // AsyncProjector keeps database projection work away from the whatsmeow event

@@ -7,10 +7,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/raufhm/whatsapp-testing/domain"
-	"github.com/raufhm/whatsapp-testing/internal/storage"
-	"github.com/raufhm/whatsapp-testing/internal/totp"
-	"github.com/raufhm/whatsapp-testing/whatsapp"
+	"github.com/raufhm/whops/domain"
+	"github.com/raufhm/whops/internal/storage"
+	"github.com/raufhm/whops/internal/totp"
+	"github.com/raufhm/whops/whatsapp"
 )
 
 type signupTenantRequest struct {

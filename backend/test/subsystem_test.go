@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raufhm/whatsapp-testing/domain"
+	"github.com/raufhm/whops/domain"
 )
 
 type MockDispatcher struct {

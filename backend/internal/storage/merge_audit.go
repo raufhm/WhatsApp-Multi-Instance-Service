@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/raufhm/whatsapp-testing/domain"
+	"github.com/raufhm/whops/domain"
 )
 
 func writeAuditLogNullable(tx *sql.Tx, tenantID uuid.UUID, operatorID, action string, conversationID *uuid.UUID, details map[string]any) error {

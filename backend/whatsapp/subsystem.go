@@ -15,9 +15,9 @@ import (
 	"unicode"
 
 	"github.com/google/uuid"
-	"github.com/raufhm/whatsapp-testing/domain"
-	"github.com/raufhm/whatsapp-testing/internal/storage"
-	"github.com/raufhm/whatsapp-testing/internal/upload"
+	"github.com/raufhm/whops/domain"
+	"github.com/raufhm/whops/internal/storage"
+	"github.com/raufhm/whops/internal/upload"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store"

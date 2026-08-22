@@ -11,8 +11,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/raufhm/whatsapp-testing/domain"
-	"github.com/raufhm/whatsapp-testing/internal/totp"
+	"github.com/raufhm/whops/domain"
+	"github.com/raufhm/whops/internal/totp"
 )
 
 var slugRegex = regexp.MustCompile(`[^a-z0-9]+`)

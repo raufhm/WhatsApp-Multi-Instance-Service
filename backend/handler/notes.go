@@ -3,7 +3,7 @@ package handler
 import (
 	"net/http"
 
-	"github.com/raufhm/whatsapp-testing/domain"
+	"github.com/raufhm/whops/domain"
 )
 
 // internalNoteRequest is the JSON body for creating an internal note.

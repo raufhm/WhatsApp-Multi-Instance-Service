@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/raufhm/whatsapp-testing/domain"
-	"github.com/raufhm/whatsapp-testing/internal/storage"
-	"github.com/raufhm/whatsapp-testing/internal/totp"
+	"github.com/raufhm/whops/domain"
+	"github.com/raufhm/whops/internal/storage"
+	"github.com/raufhm/whops/internal/totp"
 )
 
 // sessionCookieName is the HttpOnly session cookie used by the dashboard.

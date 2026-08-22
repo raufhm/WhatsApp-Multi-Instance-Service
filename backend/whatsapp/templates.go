@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/raufhm/whatsapp-testing/domain"
+	"github.com/raufhm/whops/domain"
 )
 
 // BuildInvitationMessage formats a WhatsApp invitation message with instructions and TOTP onboarding details.

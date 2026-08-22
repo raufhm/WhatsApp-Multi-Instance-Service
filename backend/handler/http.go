@@ -14,9 +14,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/mdp/qrterminal"
-	"github.com/raufhm/whatsapp-testing/domain"
-	"github.com/raufhm/whatsapp-testing/internal/storage"
-	"github.com/raufhm/whatsapp-testing/whatsapp"
+	"github.com/raufhm/whops/domain"
+	"github.com/raufhm/whops/internal/storage"
+	"github.com/raufhm/whops/whatsapp"
 	"go.mau.fi/whatsmeow"
 	waLog "go.mau.fi/whatsmeow/util/log"
 )

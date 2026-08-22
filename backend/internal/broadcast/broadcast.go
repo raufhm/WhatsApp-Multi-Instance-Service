@@ -3,7 +3,7 @@ package broadcast
 import (
 	"sync"
 
-	"github.com/raufhm/whatsapp-testing/domain"
+	"github.com/raufhm/whops/domain"
 )
 
 // BroadcastBuffer is the default per-subscriber channel capacity. When a

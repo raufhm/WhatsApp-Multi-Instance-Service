@@ -1,6 +1,6 @@
 package whatsapp
 
-import "github.com/raufhm/whatsapp-testing/domain"
+import "github.com/raufhm/whops/domain"
 
 // BotSender adapts the application bot to the provider's bounded outbound
 // queue. The manager is assigned after construction to avoid a dispatcher
