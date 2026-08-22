@@ -1,5 +1,0 @@
-schema: spec-driven
-
-project:
-  name: WhatsApp Multi-Instance Service
-  description: High-performance, multi-account WhatsApp API gateway
