@@ -57,6 +57,16 @@ The current build supports:
 
 This is intentionally practical and mostly manual in the right places. A human still makes decisions, but the project gives those decisions a place to live.
 
+## Preview
+
+Here is a short public-safe recorded preview based on the current dashboard screens:
+
+![Whops sanitized dashboard demo](docs/screenshots/whops-demo-preview.gif)
+
+The preview uses fictional customers, masked phone numbers, placeholder account IDs, and a demo operator email so it can be shared without exposing private inbox data.
+
+For social sharing, see the draft in [docs/linkedin-post.md](docs/linkedin-post.md).
+
 ## No AI yet
 
 There is no AI assistant in the product today, by design.
