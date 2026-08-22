@@ -106,7 +106,7 @@ const AssignmentModal: React.FC<AssignmentModalProps> = ({ isOpen, conversation,
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <input
-                className="form-control w-full pl-9"
+                className="form-control w-full rounded-xl border-gray-200 bg-white/90 pl-9"
                 placeholder="Filter by name or role"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -118,7 +118,7 @@ const AssignmentModal: React.FC<AssignmentModalProps> = ({ isOpen, conversation,
         <div className="space-y-2">
           <label className="text-xs font-semibold uppercase tracking-wide text-gray-500">Assign to</label>
           <select
-            className="form-control w-full"
+            className="form-control w-full rounded-xl border-gray-200 bg-white/90"
             value={selectedAssignee}
             onChange={(e) => setSelectedAssignee(e.target.value)}
             disabled={assign.isPending || (fallbackOnlyAdmin && !isLoading)}

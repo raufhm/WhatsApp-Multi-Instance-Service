@@ -45,7 +45,7 @@ export const Modal: React.FC<ModalProps> = ({
       />
 
       {/* Modal content */}
-      <div className={`relative w-full max-w-lg bg-white rounded-xl shadow-2xl max-h-[90vh] overflow-hidden ${className}`}>
+      <div className={`relative w-full max-w-lg bg-white rounded-2xl shadow-2xl max-h-[90vh] overflow-hidden ${className}`}>
         {/* Header */}
         {title && (
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">

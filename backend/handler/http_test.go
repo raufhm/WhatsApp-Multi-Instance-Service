@@ -96,6 +96,8 @@ func (f *apiRepoStub) CloseConversationWithReason(uuid.UUID, uuid.UUID, string, 
 func (f *apiRepoStub) ReopenConversation(uuid.UUID, uuid.UUID, string) (domain.Conversation, error) {
 	return domain.Conversation{}, nil
 }
+func (f *apiRepoStub) DeleteConversation(uuid.UUID, uuid.UUID) error                  { return nil }
+func (f *apiRepoStub) RequestConversationDeletion(uuid.UUID, uuid.UUID, string) error { return nil }
 func (f *apiRepoStub) AddInternalNote(uuid.UUID, uuid.UUID, domain.Actor, string, string) (domain.ConversationMessage, error) {
 	return domain.ConversationMessage{}, nil
 }

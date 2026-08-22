@@ -64,7 +64,7 @@ export function DataTable<TData extends { id: string }>({
   return (
     <Card className="overflow-hidden">
       {enableGlobalFilter && (
-        <div className="p-2 border-b border-gray-200">
+        <div className="p-3 border-b border-gray-200/80 bg-white/50">
           <input
             className="form-control max-w-xs"
             placeholder="Search..."

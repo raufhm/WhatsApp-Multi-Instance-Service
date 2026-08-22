@@ -411,6 +411,20 @@ export function useReopenConversation() {
   })
 }
 
+export function useDeleteConversation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id }: { id: string }) => {
+      const response = await apiClient.delete(`/api/v1/operator/delete?id=${id}`)
+      return { deleted: response.status === 204 }
+    },
+    onSuccess: (_data, { id }) => {
+      qc.removeQueries({ queryKey: inboxKeys.detail(id) })
+      qc.invalidateQueries({ queryKey: inboxKeys.all })
+    },
+  })
+}
+
 export function useAddInternalNote() {
   const qc = useQueryClient()
   return useMutation({

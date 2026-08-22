@@ -134,7 +134,7 @@ export const TotpSettings: React.FC = () => {
                 <h2 className="text-lg font-bold text-gray-900">Authenticator (TOTP)</h2>
                 <p className="text-xs text-gray-500 mt-0.5">Primary login factor</p>
               </div>
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-cyan-100 text-cyan-800">
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 Active
               </span>
@@ -147,7 +147,7 @@ export const TotpSettings: React.FC = () => {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-gray-500">Protection:</span>
-                <span className="font-semibold text-green-700">AES-256-GCM Encrypted</span>
+                <span className="font-semibold text-cyan-700">AES-256-GCM Encrypted</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-gray-500">Verified On:</span>
@@ -175,7 +175,7 @@ export const TotpSettings: React.FC = () => {
               <span
                 className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
                   (status?.backup_codes_remaining ?? 10) > 3
-                    ? 'bg-blue-100 text-blue-800'
+                    ? 'bg-cyan-100 text-cyan-800'
                     : 'bg-amber-100 text-amber-800'
                 }`}
               >

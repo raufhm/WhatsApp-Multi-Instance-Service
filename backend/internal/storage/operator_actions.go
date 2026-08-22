@@ -80,6 +80,42 @@ func (p *PostgresStore) HandoffConversation(tenantID, conversationID uuid.UUID, 
 	return c, nil
 }
 
+// DeleteConversation permanently removes a tenant-owned conversation and its
+// messages, bot session, and activities through database cascades.
+func (p *PostgresStore) DeleteConversation(tenantID, conversationID uuid.UUID) error {
+	result, err := p.db.Exec(`DELETE FROM conversations WHERE tenant_id=$1 AND id=$2`, tenantID, conversationID)
+	if err != nil {
+		return err
+	}
+	if n, err := result.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// RequestConversationDeletion records an operator's request for an admin to
+// permanently remove the conversation.
+func (p *PostgresStore) RequestConversationDeletion(tenantID, conversationID uuid.UUID, operatorID string) error {
+	tx, err := p.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var exists bool
+	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM conversations WHERE tenant_id=$1 AND id=$2)`, tenantID, conversationID).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return sql.ErrNoRows
+	}
+	if err := writeAuditLog(tx, tenantID, operatorID, "DELETE_REQUESTED", conversationID, map[string]any{"reason": "operator requested deletion"}); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // CloseConversationWithReason closes an open conversation with an explicit
 // reason. Unlike CloseConversation it does not create a follow-up activity.
 func (p *PostgresStore) CloseConversationWithReason(tenantID, conversationID uuid.UUID, reason string, operatorID string) (domain.Conversation, error) {

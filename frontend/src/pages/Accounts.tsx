@@ -75,11 +75,11 @@ const Accounts: React.FC = () => {
       </div>
 
       <Card className="overflow-hidden border border-gray-200/80">
-        <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="px-4 py-3 border-b border-white/70 bg-[#f8f4ef]/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="relative max-w-xs">
             <Search className="h-4 w-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input
-              className="form-control pl-8 py-1.5 text-sm w-full"
+              className="h-10 w-full rounded-xl border border-gray-200 bg-white px-3 pl-8 text-sm text-gray-900 shadow-sm outline-none placeholder:text-gray-400 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20"
               placeholder="Search channels..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -146,7 +146,7 @@ const Accounts: React.FC = () => {
                 <tr key={a.id} className="hover:bg-gray-50/60 transition-colors">
                   <td className="py-3 px-4">
                     <div className="flex items-center gap-3">
-                      <div className={`p-2 rounded-full shrink-0 ${a.is_connected ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                      <div className={`p-2 rounded-full shrink-0 ${a.is_connected ? 'bg-cyan-100 text-cyan-700' : 'bg-red-100 text-red-600'}`}>
                         <Smartphone className="h-4 w-4" />
                       </div>
                       <div>
@@ -157,11 +157,11 @@ const Accounts: React.FC = () => {
                   </td>
                   <td className="py-3 px-4">
                     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${
-                      a.is_connected ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                      a.is_connected ? 'bg-cyan-100 text-cyan-800' : 'bg-red-100 text-red-800'
                     }`}>
                       {a.is_connected ? (
                         <>
-                          <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-cyan-500" />
                           Connected
                         </>
                       ) : (
@@ -174,7 +174,7 @@ const Accounts: React.FC = () => {
                   </td>
                   <td className="py-3 px-4">
                     <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${
-                      a.health === 'healthy' ? 'bg-green-100 text-green-800' :
+                      a.health === 'healthy' ? 'bg-cyan-100 text-cyan-800' :
                       a.health === 'disconnected' ? 'bg-red-100 text-red-800' :
                       'bg-gray-100 text-gray-800'
                     }`}>

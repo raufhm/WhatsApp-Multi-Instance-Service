@@ -581,7 +581,7 @@ func (i *WhatsAppInstance) handleHistorySync(v *events.HistorySync) {
 
 	for _, conv := range v.Data.GetConversations() {
 		chatJID, _ := types.ParseJID(conv.GetID())
-		if chatJID.IsEmpty() || chatJID.Server == types.BroadcastServer {
+		if chatJID.IsEmpty() || chatJID.Server == types.BroadcastServer || chatJID.Server == types.NewsletterServer {
 			continue
 		}
 
@@ -712,7 +712,7 @@ func (i *WhatsAppInstance) downloadMessageMedia(m *waE2E.Message, msgID string) 
 func (i *WhatsAppInstance) handleIncomingMessage(v *events.Message) {
 	// WhatsApp Status updates are broadcast timeline items, not customer chats.
 	// Do not project them into contacts, conversations, or the inbox.
-	if v == nil || v.Info.Chat.Server == types.BroadcastServer {
+	if v == nil || v.Info.Chat.Server == types.BroadcastServer || v.Info.Chat.Server == types.NewsletterServer || v.Info.Sender.Server == types.NewsletterServer {
 		return
 	}
 	content, msgType, reactionTarget := parseMessageContent(v.Message)

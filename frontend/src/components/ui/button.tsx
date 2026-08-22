@@ -11,13 +11,13 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant = 'default', size = 'md', ...props }, ref) => {
-    const baseClasses = 'inline-flex items-center justify-center gap-1.5 rounded-md font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-primary-500/40 disabled:opacity-50 disabled:pointer-events-none'
+    const baseClasses = 'inline-flex items-center justify-center gap-1.5 rounded-xl font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-orange-500/40 disabled:opacity-50 disabled:pointer-events-none'
 
     const variantClasses = {
-      default: 'bg-white text-gray-800 border border-gray-300 shadow-sm hover:bg-gray-50 hover:border-gray-300',
-      primary: 'bg-primary-600 text-white shadow-sm hover:bg-primary-700',
-      secondary: 'bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200',
-      ghost: 'bg-transparent text-gray-600 hover:bg-gray-100 hover:text-gray-900',
+      default: 'bg-white text-gray-900 border border-gray-200 shadow-sm hover:bg-[#f8f4ef] hover:border-gray-300',
+      primary: 'bg-orange-500 text-white shadow-sm hover:bg-orange-600',
+      secondary: 'bg-white/80 text-gray-800 border border-gray-300 hover:bg-white',
+      ghost: 'bg-transparent text-gray-700 hover:bg-white/80 hover:text-gray-950',
       danger: 'bg-red-600 text-white shadow-sm hover:bg-red-700',
     }
 

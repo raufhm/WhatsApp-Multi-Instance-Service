@@ -138,7 +138,7 @@ export function DealPipelineTracker({ contactId, currentStageKey, currentStageId
           </p>
           <Link
             to="/settings/pipelines"
-            className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors shadow-sm"
+            className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-orange-500 text-white hover:bg-orange-600 transition-colors shadow-sm"
           >
             <Settings className="h-3.5 w-3.5" />
             Configure Deal Stages
@@ -246,7 +246,7 @@ export function DealPipelineTracker({ contactId, currentStageKey, currentStageId
             type="button"
             disabled={!selectedTargetStage || moveStage.isPending}
             onClick={() => handleExecuteMove(selectedTargetStage, selectedTargetStageId, moveNote)}
-            className="px-2.5 py-1 bg-primary-600 text-white rounded text-xs font-semibold hover:bg-primary-700 disabled:opacity-50 transition-colors flex items-center gap-1 shadow-2xs cursor-pointer"
+            className="px-2.5 py-1 bg-orange-500 text-white rounded-xl text-xs font-semibold hover:bg-orange-600 disabled:opacity-50 transition-colors flex items-center gap-1 shadow-2xs cursor-pointer"
           >
             {moveStage.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
             Save Note

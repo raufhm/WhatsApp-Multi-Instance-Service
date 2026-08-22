@@ -45,6 +45,10 @@ const resolveMediaUrl = (url: string) => {
   if (url.startsWith('/api/v1/media/')) {
     return `/dashboard/api/media/${url.slice('/api/v1/media/'.length)}`
   }
+  // Older messages may contain the object key rather than a resolved URL.
+  if (!url.startsWith('/') && !/^https?:\/\//i.test(url)) {
+    return `/dashboard/api/media/${url}`
+  }
   return url
 }
 
@@ -373,17 +377,17 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({ conversationId 
   const hasOlderMessages = messages.length === messageLimit
 
   return (
-    <Card className="h-full flex flex-col overflow-hidden rounded-none lg:rounded-2xl border-gray-200/80 shadow-[0_20px_70px_-35px_rgba(15,23,42,0.35)] bg-white/95 backdrop-blur">
-      <div className="px-4 py-3 border-b border-gray-200 bg-gradient-to-r from-slate-50 via-white to-sky-50 flex items-center justify-between shrink-0">
+    <Card className="h-full flex flex-col overflow-hidden rounded-none border-0 bg-white/95 shadow-none backdrop-blur">
+      <div className="px-5 py-4 border-b border-gray-200/80 bg-white flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="h-10 w-10 rounded-2xl bg-gradient-to-br from-primary-600 to-cyan-500 text-white flex items-center justify-center shrink-0 shadow-lg shadow-primary-600/20">
+          <div className="h-11 w-11 rounded-full bg-gradient-to-br from-cyan-200 via-orange-100 to-orange-500 text-gray-900 flex items-center justify-center shrink-0 shadow-sm">
             <span className="text-sm font-semibold">
               {displayName.charAt(0).toUpperCase()}
             </span>
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-sm font-semibold text-gray-900 truncate">{displayName}</h3>
+              <h3 className="text-base font-bold text-gray-950 truncate">{displayName}</h3>
               {isGroup && (
                 <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
                   <Users className="h-3 w-3" />
@@ -391,7 +395,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({ conversationId 
                 </span>
               )}
               {channelLabel && (
-                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-sky-700 bg-sky-50 border border-sky-200 px-2 py-0.5 rounded-full">
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-cyan-700 bg-cyan-50 border border-cyan-200 px-2 py-0.5 rounded-full">
                   <Clock className="h-3 w-3" />
                   {channelLabel}
                 </span>
@@ -408,24 +412,31 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({ conversationId 
         <button
           type="button"
           onClick={() => setIsAssignOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
+          className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-[#f8f4ef] transition-colors"
         >
           <Users className="h-3.5 w-3.5 text-gray-500" />
           Assign
         </button>
       </div>
 
-      <div ref={timelineRef} onScroll={handleTimelineScroll} className="flex-1 overflow-y-auto p-4 space-y-2 bg-[linear-gradient(to_bottom,rgba(248,250,252,0.92),rgba(255,255,255,1))]">
+      <div ref={timelineRef} onScroll={handleTimelineScroll} className="flex-1 overflow-y-auto p-5 space-y-3 bg-[linear-gradient(to_bottom,rgba(255,255,255,0.95),rgba(250,247,243,0.9))]">
         {hasOlderMessages && (
           <div className="flex justify-center py-1">
             <button
               type="button"
               onClick={loadOlderMessages}
-              className="text-[11px] font-medium text-primary-600 hover:text-primary-700"
+              className="text-[11px] font-medium text-orange-600 hover:text-orange-700"
               disabled={isFetching}
             >
               {isFetching ? 'Loading older messages...' : 'Load older messages'}
             </button>
+          </div>
+        )}
+        {visibleMessages.length > 0 && (
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 py-1 text-center text-[11px] text-gray-500">
+            <span className="h-px bg-gray-200" />
+            <span>Chat Started: {formatTime(conversation.started_at)}</span>
+            <span className="h-px bg-gray-200" />
           </div>
         )}
         {visibleMessages.length === 0 && (
@@ -435,6 +446,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({ conversationId 
         )}
         {visibleMessages.map((m) => {
           const resolvedUrl = resolveMediaUrl(m.media_url)
+          const messageType = String(m.message_type || '').toUpperCase()
           const messageReaction = localReactions[m.id] || reactionsByTarget.get(m.provider_message_id)
           const isReplyTarget = replyTarget?.id === m.id
           return (
@@ -444,14 +456,16 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({ conversationId 
             >
               <div className={`flex items-end gap-2 max-w-[96%] ${m.actor === 'CONTACT' || m.direction === 'INCOMING' ? 'flex-row' : 'flex-row-reverse'}`}>
               <div
-                className={`px-3.5 py-2 rounded-2xl shadow-sm transition-transform ${
-                  isReplyTarget ? 'translate-x-2 ring-2 ring-primary-300 ring-offset-2' : ''
+                className={`px-4 py-3 rounded-xl shadow-sm transition-transform ${
+                  isReplyTarget ? 'translate-x-2 ring-2 ring-orange-300 ring-offset-2' : ''
                 } ${
                   m.is_internal
                     ? 'bg-amber-50 text-amber-900 border border-amber-200 border-dashed'
                     : m.actor === 'CONTACT' || m.direction === 'INCOMING'
-                      ? 'bg-white border border-gray-200 text-gray-900'
-                      : 'bg-gradient-to-br from-primary-600 to-cyan-600 text-white'
+                      ? 'bg-[#f1eeeb] text-gray-950'
+                      : m.actor === 'BOT'
+                        ? 'bg-[#fff1e9] text-gray-950'
+                        : 'bg-[#bfe3ed] text-gray-950'
                 }`}
                 role={m.is_internal ? 'note' : undefined}
               >
@@ -466,28 +480,31 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({ conversationId 
                 {(m.actor === 'OPERATOR' || m.actor === 'BOT' || m.direction === 'OUTGOING') && !m.is_internal && (
                   <span
                     className={`text-[10px] font-semibold block mb-0.5 ${
-                      m.actor === 'OPERATOR' || m.direction === 'OUTGOING' ? 'text-primary-100' : 'text-gray-500'
+                      m.actor === 'OPERATOR' || m.direction === 'OUTGOING' ? 'text-gray-600' : 'text-gray-500'
                     }`}
                     title={m.operator_name ? `Sent by ${m.operator_name}` : `Sent by ${m.actor === 'BOT' ? 'Bot' : 'Operator'}`}
                   >
                     {m.operator_name || (m.actor === 'BOT' ? 'Bot' : 'Operator')}
                   </span>
                 )}
-                {m.message_type === 'IMAGE' && resolvedUrl ? (
+                {messageType === 'IMAGE' && resolvedUrl ? (
                   <div className="mb-1.5">
                     <img
                       src={resolvedUrl}
-                      alt="Attachment"
-                      className="rounded-md max-h-60 max-w-full object-contain cursor-pointer"
+                      alt="Image attachment"
+                      className="block max-h-60 max-w-full rounded-md object-contain cursor-pointer"
                       loading="lazy"
                       onClick={() => window.open(resolvedUrl, '_blank')}
+                      onError={(event) => {
+                        event.currentTarget.style.display = 'none'
+                      }}
                     />
                   </div>
-                ) : m.message_type === 'VIDEO' && resolvedUrl ? (
+                ) : messageType === 'VIDEO' && resolvedUrl ? (
                   <div className="mb-1.5">
                     <video src={resolvedUrl} controls className="rounded-md max-h-60 max-w-full" />
                   </div>
-                ) : m.message_type === 'AUDIO' && resolvedUrl ? (
+                ) : messageType === 'AUDIO' && resolvedUrl ? (
                   <div className="mb-1.5">
                     <audio src={resolvedUrl} controls className="max-w-full my-1" />
                   </div>
@@ -498,7 +515,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({ conversationId 
                       target="_blank"
                       rel="noreferrer"
                       className={`inline-flex items-center gap-1.5 text-sm font-medium underline ${
-                        m.actor === 'OPERATOR' || m.direction === 'OUTGOING' ? 'text-white' : 'text-primary-600'
+                        m.actor === 'OPERATOR' || m.direction === 'OUTGOING' ? 'text-cyan-800' : 'text-orange-600'
                       }`}
                     >
                       <FileText className="h-4 w-4" />
@@ -510,7 +527,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({ conversationId 
                   {renderMessageContent(m.content, m.actor === 'OPERATOR' || m.direction === 'OUTGOING')}
                 </p>
                 <div className="flex items-center justify-end gap-1 mt-1">
-                  <span className={`text-[10px] ${m.actor === 'OPERATOR' || (m.direction === 'OUTGOING' && !m.is_internal) ? 'text-primary-100' : 'text-gray-400'}`}>
+                  <span className={`text-[10px] ${m.actor === 'OPERATOR' || (m.direction === 'OUTGOING' && !m.is_internal) ? 'text-gray-500' : 'text-gray-400'}`}>
                     {formatTime(m.provider_timestamp || m.created_at)}
                   </span>
                   {(m.actor === 'OPERATOR' || m.direction === 'OUTGOING') && !m.is_internal && (
@@ -529,15 +546,15 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({ conversationId 
                       }
                     >
                       {m.status === 'PENDING' ? (
-                        <Clock className="h-3 w-3 text-primary-200" />
+                        <Clock className="h-3 w-3 text-gray-500" />
                       ) : m.status === 'READ' ? (
-                        <CheckCheck className="h-3.5 w-3.5 text-sky-300" />
+                        <CheckCheck className="h-3.5 w-3.5 text-cyan-600" />
                       ) : m.status === 'DELIVERED' ? (
-                        <CheckCheck className="h-3.5 w-3.5 text-primary-200" />
+                        <CheckCheck className="h-3.5 w-3.5 text-cyan-700" />
                       ) : m.status === 'FAILED' ? (
                         <AlertCircle className="h-3 w-3 text-red-300" />
                       ) : (
-                        <Check className="h-3.5 w-3.5 text-primary-200" />
+                        <Check className="h-3.5 w-3.5 text-cyan-700" />
                       )}
                     </span>
                   )}
@@ -582,7 +599,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({ conversationId 
       {showNote && (
         <form onSubmit={handleNote} className="p-3 border-t border-gray-200 bg-white">
           <textarea
-            className="form-control w-full mb-2 text-sm py-2 px-3"
+            className="form-control w-full mb-2 text-sm py-2 px-3 rounded-xl"
             placeholder="Internal note (not sent to customer)"
             rows={2}
             value={note}
@@ -651,11 +668,11 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({ conversationId 
         accept="image/*,video/*,audio/*,application/*,text/*"
       />
 
-      <form onSubmit={handleSend} className="p-3 border-t border-gray-200 bg-white">
+      <form onSubmit={handleSend} className="m-5 mt-0 rounded-3xl bg-[#f0edea] p-3 shadow-sm">
         {replyTarget && (
-          <div className="mb-2 flex items-start justify-between gap-3 rounded-xl border border-primary-100 bg-primary-50/70 px-3 py-2">
-            <div className="min-w-0 border-l-2 border-primary-500 pl-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-primary-700">
+          <div className="mb-2 flex items-start justify-between gap-3 rounded-xl border border-orange-100 bg-orange-50/70 px-3 py-2">
+            <div className="min-w-0 border-l-2 border-orange-500 pl-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-orange-700">
                 Replying to {replyTarget.actor === 'CONTACT' || replyTarget.direction === 'INCOMING' ? displayName : replyTarget.operator_name || 'team message'}
               </p>
               <p className="truncate text-xs text-gray-600">{getMessageExcerpt(replyTarget)}</p>
@@ -677,12 +694,13 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({ conversationId 
             <span>{sendError}</span>
           </div>
         )}
+        <div className="rounded-3xl bg-white p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)]">
         <div className="flex items-end gap-2">
           <div className="relative flex-1">
             <textarea
               ref={textareaRef}
-              className="form-control w-full resize-none text-sm py-2.5 px-3.5 min-h-[44px] rounded-xl border-gray-300 focus:border-primary-400 focus:ring-primary-500/20"
-              placeholder="Type a reply... (Shift+Enter for newline, Ctrl+Enter to send)"
+              className="w-full resize-none border-0 bg-transparent px-1 py-1 text-sm text-gray-950 outline-none placeholder:text-gray-500 focus:ring-0"
+              placeholder="Type a Message....."
               rows={1}
               value={reply}
               onChange={(e) => { setReply(e.target.value); if (sendError) setSendError(null) }}
@@ -694,14 +712,14 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({ conversationId 
               }}
               disabled={closed}
             />
-            <div className="mt-1.5 flex items-center gap-2">
+            <div className="mt-3 flex flex-wrap items-center gap-2">
             {activeOperators.length > 0 && (
               <div className="relative inline-flex">
                 <button
                   type="button"
                   onClick={() => setShowSendAsMenu((open) => !open)}
                   disabled={closed || sendMessage.isPending}
-                  className="inline-flex max-w-[14rem] items-center gap-1.5 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] text-gray-600 hover:bg-white hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex max-w-[14rem] items-center gap-1.5 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] text-gray-600 hover:bg-[#f8f4ef] hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
                   title="Choose sender"
                   aria-label="Choose sender"
                   aria-haspopup="menu"
@@ -723,7 +741,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({ conversationId 
                     {user && !activeOperators.some((operator) => operator.id === user.id) && (
                       <button
                         type="button"
-                        className="flex w-full items-center justify-between gap-3 px-2.5 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50"
+                        className="flex w-full items-center justify-between gap-3 px-2.5 py-1.5 text-left text-xs text-gray-700 hover:bg-[#f8f4ef]"
                         onClick={() => {
                           setSendAsOperatorId(user.id)
                           setShowSendAsMenu(false)
@@ -731,14 +749,14 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({ conversationId 
                         role="menuitem"
                       >
                         <span className="truncate">{user.name || 'Me'}</span>
-                        {sendAsOperatorId === user.id && <Check className="h-3.5 w-3.5 text-primary-600" />}
+                        {sendAsOperatorId === user.id && <Check className="h-3.5 w-3.5 text-orange-600" />}
                       </button>
                     )}
                     {activeOperators.map((operator) => (
                       <button
                         key={operator.id}
                         type="button"
-                        className="flex w-full items-center justify-between gap-3 px-2.5 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-50"
+                        className="flex w-full items-center justify-between gap-3 px-2.5 py-1.5 text-left text-xs text-gray-700 hover:bg-[#f8f4ef]"
                         onClick={() => {
                           setSendAsOperatorId(operator.id)
                           setShowSendAsMenu(false)
@@ -748,7 +766,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({ conversationId 
                         <span className="truncate">
                           {operator.name}{operator.id === user?.id ? ' (me)' : ''}
                         </span>
-                        {sendAsOperatorId === operator.id && <Check className="h-3.5 w-3.5 text-primary-600" />}
+                        {sendAsOperatorId === operator.id && <Check className="h-3.5 w-3.5 text-orange-600" />}
                       </button>
                     ))}
                   </div>
@@ -761,7 +779,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({ conversationId 
               onClick={() => setShowNote(!showNote)}
               title="Add internal note"
               type="button"
-              className="h-7 rounded-full px-2 text-[11px] text-gray-600 hover:text-amber-700"
+              className="h-8 rounded-full border border-gray-200 bg-white px-3 text-[11px] text-gray-600 hover:text-amber-700"
             >
               <StickyNote className="h-3.5 w-3.5 mr-1" />
               Note
@@ -776,7 +794,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({ conversationId 
                 onClick={() => setShowEmoji(!showEmoji)}
                 title="Insert emoji"
                 type="button"
-                className="rounded-xl"
+                className="h-10 w-10 rounded-full bg-[#f0edea] text-gray-700 hover:bg-[#e8e2dc]"
               >
                 <Smile className="h-5 w-5" />
               </Button>
@@ -802,7 +820,7 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({ conversationId 
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={closed || attachedMedia?.isUploading}
-              className="rounded-xl"
+              className="h-10 w-10 rounded-full bg-[#f0edea] text-gray-700 hover:bg-[#e8e2dc]"
             >
               <Paperclip className="h-5 w-5" />
             </Button>
@@ -816,11 +834,12 @@ const ConversationThread: React.FC<ConversationThreadProps> = ({ conversationId 
                 sendMessage.isPending ||
                 attachedMedia?.isUploading
               }
-              className="rounded-xl px-4"
+              className="h-10 w-10 rounded-full bg-orange-600 px-0 text-white hover:bg-orange-700"
             >
               {sendMessage.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             </Button>
           </div>
+        </div>
         </div>
       </form>
     </Card>

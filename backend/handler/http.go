@@ -802,7 +802,8 @@ func (s *Server) APIHandler(w http.ResponseWriter, r *http.Request) {
 		// POST /api/v1/operator/handoff?id=<conv> - handoff
 		// POST /api/v1/operator/close?id=<conv> - close with reason
 		// POST /api/v1/operator/reopen?id=<conv> - reopen
-		if len(parts) == 2 && r.Method == http.MethodPost {
+		// DELETE /api/v1/operator/delete?id=<conv> - permanently delete
+		if len(parts) == 2 && ((r.Method == http.MethodPost) || (r.Method == http.MethodDelete && parts[1] == "delete")) {
 			switch parts[1] {
 			case "assign":
 				s.AssignConversationHandler(w, r)
@@ -815,6 +816,9 @@ func (s *Server) APIHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			case "reopen":
 				s.ReopenConversationHandler(w, r)
+				return
+			case "delete":
+				s.DeleteConversationHandler(w, r)
 				return
 			}
 		}

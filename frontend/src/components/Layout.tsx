@@ -122,7 +122,8 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   }
 
   const sidebarWidthClass = collapsed ? 'w-16' : 'w-56'
-  const mainPaddingClass = collapsed ? 'lg:pl-16' : 'lg:pl-56'
+  const mainPaddingClass = collapsed ? 'lg:pl-20' : 'lg:pl-60'
+  const isInboxSurface = activePath === '/inbox' || activePath.startsWith('/conversations/')
 
   const renderNavItem = (item: NavItem) => {
     const Icon = item.icon
@@ -140,12 +141,12 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               onClick={() => toggleGroup(item.name)}
               className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 text-left text-[13px] rounded-md transition-colors ${
                 itemActive
-                  ? 'bg-white/10 text-white font-semibold'
-                  : 'text-gray-400 hover:text-gray-100 hover:bg-white/5'
+                  ? 'bg-white text-gray-950 font-semibold shadow-sm'
+                  : 'text-gray-800 font-semibold hover:text-gray-950 hover:bg-white/85'
               }`}
               title={item.name}
             >
-              <Icon className={`h-4 w-4 shrink-0 ${itemActive ? 'text-primary-400' : 'text-gray-500'}`} />
+              <Icon className={`h-4 w-4 shrink-0 ${itemActive ? 'text-orange-600' : 'text-gray-700'}`} />
               {!collapsed && (
                 <>
                   <span className="flex-1">{item.name}</span>
@@ -154,7 +155,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               )}
             </button>
             {!collapsed && isGroupOpen && (
-              <div className="mt-0.5 ml-6 space-y-0.5 border-l border-white/10 pl-2">
+              <div className="mt-0.5 ml-6 space-y-0.5 border-l border-gray-300 pl-2">
                 {item.children!.map((child) => {
                   const ChildIcon = child.icon
                   const childActive = isActive(child.href)
@@ -164,13 +165,13 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                       to={child.href}
                       className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 text-left text-[13px] rounded-md transition-colors ${
                         childActive
-                          ? 'bg-white/10 text-white font-semibold'
-                          : 'text-gray-400 hover:text-gray-100 hover:bg-white/5'
+                          ? 'bg-white text-gray-950 font-semibold shadow-sm'
+                          : 'text-gray-800 font-semibold hover:text-gray-950 hover:bg-white/85'
                       }`}
                       onClick={() => setSidebarOpen(false)}
                       title={child.name}
                     >
-                      <ChildIcon className={`h-3.5 w-3.5 shrink-0 ${childActive ? 'text-primary-400' : 'text-gray-500'}`} />
+                      <ChildIcon className={`h-3.5 w-3.5 shrink-0 ${childActive ? 'text-orange-600' : 'text-gray-700'}`} />
                       <span>{child.name}</span>
                     </Link>
                   )
@@ -183,13 +184,13 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             to={item.href}
             className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 text-left text-[13px] rounded-md transition-colors ${
               itemActive
-                ? 'bg-white/10 text-white font-semibold'
-                : 'text-gray-400 hover:text-gray-100 hover:bg-white/5'
+                ? 'bg-white text-gray-950 font-semibold shadow-sm'
+                : 'text-gray-800 font-semibold hover:text-gray-950 hover:bg-white/85'
             }`}
             onClick={() => setSidebarOpen(false)}
             title={item.name}
           >
-            <Icon className={`h-4 w-4 shrink-0 ${itemActive ? 'text-primary-400' : 'text-gray-500'}`} />
+            <Icon className={`h-4 w-4 shrink-0 ${itemActive ? 'text-orange-600' : 'text-gray-700'}`} />
             {!collapsed && <span>{item.name}</span>}
           </Link>
         )}
@@ -198,7 +199,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   }
 
   return (
-    <div className="min-h-screen bg-[#faf9f7]">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(255,108,31,0.16),transparent_26%),radial-gradient(circle_at_top_right,rgba(45,212,191,0.16),transparent_28%),linear-gradient(135deg,#c79376_0%,#c5e8ef_38%,#fbf7f2_100%)]">
       {/* Mobile sidebar toggle button */}
       <button
         type="button"
@@ -210,30 +211,30 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
       {/* Sidebar (desktop) and Mobile sidebar */}
       <div
-        className={`fixed inset-y-0 left-0 z-30 ${sidebarWidthClass} bg-slate-800 text-gray-300 border-r border-white/5 transform ${
+        className={`fixed inset-y-0 left-3 my-3 z-30 ${sidebarWidthClass} overflow-hidden rounded-[28px] bg-[#fffaf5]/95 text-gray-900 border border-white/80 shadow-[14px_0_45px_-24px_rgba(15,23,42,0.55)] backdrop-blur-xl transform ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         } transition-all duration-300 ease-in-out lg:translate-x-0`}
       >
         <div className="flex flex-col h-full">
-          <div className="flex items-center justify-between px-3 py-3 border-b border-white/5">
+          <div className="flex items-center justify-between px-3 py-3 border-b border-white/60">
             {!collapsed && (
               <div className="flex items-center space-x-2.5 min-w-0">
-                <div className="h-7 w-7 rounded-lg bg-primary-500/90 flex items-center justify-center shadow-sm shrink-0">
+                <div className="h-8 w-8 rounded-xl rounded-bl-md bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center shadow-sm shrink-0">
                   <span className="text-white text-sm font-bold">w</span>
                 </div>
-                <span className="font-semibold text-sm text-gray-100 tracking-tight truncate">{tenantName || 'Dashboard'}</span>
+                <span className="font-semibold text-sm text-gray-950 tracking-tight truncate">{tenantName || 'Dashboard'}</span>
               </div>
             )}
             {collapsed && (
               <div className="mx-auto">
-                <div className="h-7 w-7 rounded-lg bg-primary-500/90 flex items-center justify-center shadow-sm">
+                <div className="h-8 w-8 rounded-xl rounded-bl-md bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center shadow-sm">
                   <span className="text-white text-sm font-bold">w</span>
                 </div>
               </div>
             )}
             <button
               type="button"
-              className="lg:hidden p-1 rounded-md text-gray-500 hover:text-gray-200 hover:bg-white/5 focus:outline-none"
+              className="lg:hidden p-1 rounded-md text-gray-500 hover:text-gray-900 hover:bg-white/70 focus:outline-none"
               onClick={() => setSidebarOpen(false)}
             >
               <X className="h-4 w-4" />
@@ -244,12 +245,12 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             <div className="space-y-0.5">{navigation.map(renderNavItem)}</div>
           </nav>
 
-          <div className="border-t border-white/5 p-3 space-y-2">
+          <div className="border-t border-white/60 p-3 space-y-2">
             {!collapsed && (
               <button
                 type="button"
                 onClick={() => setCollapsed(true)}
-                className="hidden lg:flex w-full items-center gap-2 px-2.5 py-1.5 text-[13px] text-gray-400 hover:text-gray-100 hover:bg-white/5 rounded-md transition-colors"
+                className="hidden lg:flex w-full items-center gap-2 px-2.5 py-1.5 text-[13px] text-gray-500 hover:text-gray-950 hover:bg-white/75 rounded-md transition-colors"
                 title="Collapse sidebar"
               >
                 <PanelLeftClose className="h-4 w-4" />
@@ -260,7 +261,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               <button
                 type="button"
                 onClick={() => setCollapsed(false)}
-                className="hidden lg:flex w-full justify-center p-1.5 text-gray-400 hover:text-gray-100 hover:bg-white/5 rounded-md transition-colors"
+                className="hidden lg:flex w-full justify-center p-1.5 text-gray-500 hover:text-gray-950 hover:bg-white/75 rounded-md transition-colors"
                 title="Expand sidebar"
               >
                 <PanelLeftOpen className="h-4 w-4" />
@@ -269,25 +270,25 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
             <Link
               to="/account/totp"
-              className={`flex items-center ${collapsed ? 'justify-center' : 'space-x-2.5'} p-1.5 rounded-lg hover:bg-white/5 transition-colors`}
+              className={`flex items-center ${collapsed ? 'justify-center' : 'space-x-2.5'} p-1.5 rounded-lg hover:bg-white/75 transition-colors`}
               title={user?.name || 'User'}
             >
-              <div className="h-8 w-8 rounded-lg bg-white/10 text-gray-200 font-semibold flex items-center justify-center text-xs shrink-0">
+              <div className="h-8 w-8 rounded-full bg-white text-gray-900 font-semibold flex items-center justify-center text-xs shrink-0 shadow-sm">
                 {user?.name?.charAt(0) || 'U'}
               </div>
               {!collapsed && (
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-200 truncate">{user?.name || 'User'}</p>
+                  <p className="text-sm font-medium text-gray-900 truncate">{user?.name || 'User'}</p>
                   <p className="text-xs text-gray-500 truncate">{user?.email || user?.whatsapp_number || 'Operator'}</p>
                 </div>
               )}
             </Link>
 
-            <div className="pt-2 border-t border-white/5">
+            <div className="pt-2 border-t border-white/60">
               <Button
                 variant="ghost"
                 size="sm"
-                className={`w-full text-xs text-gray-400 hover:text-red-400 hover:bg-white/5 ${collapsed ? 'justify-center px-1' : 'justify-start'}`}
+                className={`w-full text-xs text-gray-500 hover:text-red-500 hover:bg-white/75 ${collapsed ? 'justify-center px-1' : 'justify-start'}`}
                 onClick={handleLogout}
                 title="Sign out"
               >
@@ -301,20 +302,15 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
       {/* Main content area */}
       <div className={`${mainPaddingClass} min-h-screen flex flex-col transition-all duration-300`}>
-        <header className="bg-white/90 backdrop-blur border-b border-gray-200 sticky top-0 z-10">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-12">
-            <div className="lg:hidden w-8" />
-            <Link
-              to="/account/totp"
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
-            >
-              <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
-              <span>TOTP Secured</span>
-            </Link>
-          </div>
-        </header>
-
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 flex-1 w-full">{children}</main>
+        <main
+          className={
+            isInboxSurface
+              ? 'w-full flex-1 px-3 py-3'
+              : 'max-w-[1500px] mx-auto px-4 sm:px-6 lg:px-8 py-3 flex-1 w-full'
+          }
+        >
+          {isInboxSurface ? children : <div className="page-surface">{children}</div>}
+        </main>
       </div>
 
       {/* Mobile sidebar backdrop */}

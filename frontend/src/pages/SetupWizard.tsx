@@ -473,10 +473,10 @@ export const SetupWizard: React.FC = () => {
 
   if (isSetupComplete && status) {
     return (
-      <div className="min-h-screen bg-gray-50 py-10 px-4 sm:px-6 lg:px-8">
+      <div className="min-h-screen bg-transparent py-6 px-4 sm:px-6 lg:px-8">
         <div className="max-w-3xl mx-auto space-y-6">
           <div className="text-center">
-            <div className="inline-flex items-center justify-center h-10 w-10 rounded-2xl bg-green-600 text-white shadow-md mb-3">
+            <div className="inline-flex items-center justify-center h-10 w-10 rounded-2xl bg-orange-500 text-white shadow-md mb-3">
               <CheckCircle2 className="h-5 w-5" />
             </div>
             <h1 className="text-xl font-semibold text-gray-900 tracking-tight">Tenant Setup</h1>
@@ -529,10 +529,10 @@ export const SetupWizard: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-10 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-transparent py-6 px-4 sm:px-6 lg:px-8">
       <div className="max-w-3xl mx-auto">
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center h-10 w-10 rounded-2xl bg-primary-600 text-white shadow-md mb-3">
+          <div className="inline-flex items-center justify-center h-10 w-10 rounded-2xl bg-orange-500 text-white shadow-md mb-3">
             <Sparkles className="h-5 w-5" />
           </div>
           <h1 className="text-xl font-semibold text-gray-900 tracking-tight">Tenant Setup Wizard</h1>
@@ -554,9 +554,9 @@ export const SetupWizard: React.FC = () => {
                   <div
                     className={`h-10 w-10 rounded-full flex items-center justify-center transition-all ${
                       isCompleted
-                        ? 'bg-green-600 text-white'
+                        ? 'bg-cyan-500 text-white'
                         : isCurrent
-                        ? 'bg-primary-600 text-white ring-4 ring-primary-100 font-bold'
+                        ? 'bg-orange-500 text-white ring-4 ring-orange-100 font-bold'
                         : 'bg-white border-2 border-gray-300 text-gray-400'
                     }`}
                   >
@@ -564,7 +564,7 @@ export const SetupWizard: React.FC = () => {
                   </div>
                   <span
                     className={`mt-2 text-xs font-medium ${
-                      isCurrent ? 'text-primary-700 font-bold' : isCompleted ? 'text-green-700' : 'text-gray-500'
+                      isCurrent ? 'text-orange-700 font-bold' : isCompleted ? 'text-cyan-700' : 'text-gray-500'
                     }`}
                   >
                     {step.title}
@@ -621,9 +621,9 @@ export const SetupWizard: React.FC = () => {
                 </p>
               </div>
 
-              <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 space-y-4">
+              <div className="rounded-2xl border border-white/80 bg-white/60 p-5 space-y-4 shadow-sm">
                 <div className="flex items-start gap-4">
-                  <div className="p-3 bg-green-100 text-green-700 rounded-xl">
+                  <div className="p-3 bg-cyan-100 text-cyan-700 rounded-xl">
                     <QrCode className="h-8 w-8" />
                   </div>
                   <div>
@@ -636,11 +636,11 @@ export const SetupWizard: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="p-4 bg-white border border-gray-200 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="p-4 bg-white/85 border border-white/80 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
                     <div
                       className={`h-3.5 w-3.5 rounded-full flex-shrink-0 ${
-                        pairedInstance ? 'bg-green-500 animate-pulse' : 'bg-amber-400'
+                        pairedInstance ? 'bg-cyan-500 animate-pulse' : 'bg-amber-400'
                       }`}
                     />
                     <div>
@@ -717,7 +717,7 @@ export const SetupWizard: React.FC = () => {
                 </div>
               )}
 
-              <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 space-y-4">
+              <div className="rounded-2xl border border-white/80 bg-white/60 p-5 space-y-4 shadow-sm">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <PhoneInput
                     id="wizInvitePhone"

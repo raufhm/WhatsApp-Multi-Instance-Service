@@ -58,7 +58,7 @@ function formatDateTime(iso: string | undefined | null): string {
 const statusBadgeCls = (status: string) => {
   switch (status) {
     case 'ONLINE':
-      return 'bg-green-100 text-green-800'
+      return 'bg-cyan-100 text-cyan-800'
     case 'OFFLINE':
       return 'bg-red-100 text-red-800'
     case 'ERROR':
@@ -97,11 +97,11 @@ function AccountDropdown({
       <button
         type="button"
         onClick={() => setOpen(v => !v)}
-        className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium bg-white border border-gray-200 rounded-lg shadow-sm hover:bg-gray-50 hover:border-gray-300 transition-colors max-w-[280px]"
+        className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-semibold text-gray-800 bg-white border border-gray-200 rounded-xl shadow-sm hover:bg-gray-50 hover:border-gray-300 transition-colors max-w-[280px]"
       >
         <span
           className={`shrink-0 h-2 w-2 rounded-full ${
-            selected?.is_connected ? 'bg-green-500' : 'bg-gray-300'
+            selected?.is_connected ? 'bg-cyan-500' : 'bg-gray-300'
           }`}
         />
         <span className="truncate">
@@ -111,7 +111,7 @@ function AccountDropdown({
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1 max-h-72 overflow-y-auto">
+        <div className="absolute right-0 mt-1 w-72 bg-white border border-gray-200 rounded-2xl shadow-lg z-20 py-1 max-h-72 overflow-y-auto">
           {accounts.length === 0 ? (
             <p className="px-3 py-2 text-sm text-gray-500">No accounts</p>
           ) : (
@@ -124,19 +124,19 @@ function AccountDropdown({
                   setOpen(false)
                 }}
                 className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 transition-colors ${
-                  a.host_id === selectedHost ? 'bg-primary-50 text-primary-700' : 'text-gray-700'
+                  a.host_id === selectedHost ? 'bg-orange-50 text-orange-700' : 'text-gray-700'
                 }`}
               >
                 <span
                   className={`shrink-0 h-2 w-2 rounded-full ${
-                    a.is_connected ? 'bg-green-500' : 'bg-gray-300'
+                    a.is_connected ? 'bg-cyan-500' : 'bg-gray-300'
                   }`}
                 />
                 <span className="truncate flex-1 text-left">
                   {a.display_name || a.host_id}
                 </span>
                 {a.is_connected ? (
-                  <span className="shrink-0 text-[10px] font-medium text-green-600 bg-green-50 px-1.5 py-0.5 rounded">ONLINE</span>
+                  <span className="shrink-0 text-[10px] font-medium text-cyan-700 bg-cyan-50 px-1.5 py-0.5 rounded">ONLINE</span>
                 ) : (
                   <span className="shrink-0 text-[10px] font-medium text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">OFFLINE</span>
                 )}
@@ -205,7 +205,7 @@ const Monitoring: React.FC = () => {
         <button
           type="button"
           onClick={() => refetchAccounts()}
-          className="mt-4 px-3 py-1.5 text-sm bg-primary-600 text-white rounded-md hover:bg-primary-700"
+          className="mt-4 inline-flex items-center rounded-xl bg-orange-500 px-3 py-1.5 text-sm font-semibold text-white hover:bg-orange-600"
         >
           Retry
         </button>
@@ -252,10 +252,10 @@ const Monitoring: React.FC = () => {
               key={a.id}
               type="button"
               onClick={() => setSelectedHost(a.host_id)}
-              className={`text-left rounded-lg border px-3 py-2 transition-colors ${
+              className={`text-left rounded-xl border border-white/80 px-3 py-2 transition-colors ${
                 a.host_id === selectedHost
-                  ? 'border-primary-300 bg-primary-50/60 ring-1 ring-primary-200'
-                  : 'border-gray-200 bg-white hover:bg-gray-50'
+                  ? 'border-orange-300 bg-orange-50/60 ring-1 ring-orange-200'
+                  : 'border-white/80 bg-white/80 hover:bg-white'
               }`}
             >
               <div className="flex items-center gap-2">
@@ -338,7 +338,7 @@ const Monitoring: React.FC = () => {
                   key={w.value}
                   onClick={() => setWindowValue(w.value)}
                   className={`px-2 py-1 text-[11px] rounded-md font-medium ${
-                    windowValue === w.value ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    windowValue === w.value ? 'bg-orange-500 text-white' : 'bg-white/80 text-gray-700 hover:bg-white'
                   }`}
                 >
                   {w.label}

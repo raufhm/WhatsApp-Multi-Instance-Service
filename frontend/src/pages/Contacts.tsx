@@ -6,6 +6,7 @@ import Button from '@/components/ui/button'
 import { Loader2, Users, AlertCircle, ChevronLeft, ChevronRight, Search, Users2, ArrowRight } from 'lucide-react'
 
 const PAGE_SIZE = 20
+const CONTACT_FETCH_LIMIT = 1000
 const CONTACT_TYPE_OPTIONS = [
   { value: 'ALL', label: 'All contacts' },
   { value: 'GROUP', label: 'Group chats' },
@@ -30,17 +31,16 @@ const Contacts: React.FC = () => {
     setOffset(0)
   }, [contactType])
 
+  // Fetch the complete search result before applying the type filter. Filtering a
+  // paginated response meant personal contacts could be hidden on later pages.
   const { data, isLoading, isError, refetch } = useContacts({
-    limit: PAGE_SIZE,
-    offset,
+    limit: CONTACT_FETCH_LIMIT,
+    offset: 0,
     q: debouncedSearch,
   })
 
   const contacts = data?.items ?? []
-  const total = data?.total ?? 0
-  const hasNext = offset + PAGE_SIZE < total
-  const hasPrev = offset > 0
-  const sortedContacts = useMemo(() => {
+  const filteredContacts = useMemo(() => {
     const list = [...contacts]
     return list
       .filter((c) => {
@@ -54,6 +54,10 @@ const Contacts: React.FC = () => {
         return (a.name || a.number || '').localeCompare(b.name || b.number || '')
       })
   }, [contactType, contacts])
+  const total = filteredContacts.length
+  const hasNext = offset + PAGE_SIZE < total
+  const hasPrev = offset > 0
+  const sortedContacts = filteredContacts.slice(offset, offset + PAGE_SIZE)
 
   return (
     <div>
@@ -62,9 +66,6 @@ const Contacts: React.FC = () => {
           <h1 className="text-xl font-semibold text-gray-900">Contacts</h1>
           <p className="text-[13px] text-gray-600">Customer contact directory</p>
         </div>
-        <Button variant="secondary" size="sm" onClick={() => refetch()}>
-          Refresh
-        </Button>
       </div>
 
       <Card className="p-4 mb-5">
@@ -72,14 +73,14 @@ const Contacts: React.FC = () => {
           <div className="relative">
             <Search className="h-4 w-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
-              className="form-control pl-9 w-full"
+              className="h-10 w-full rounded-xl border border-gray-200 bg-white px-3 pl-9 text-sm text-gray-900 shadow-sm outline-none placeholder:text-gray-400 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20"
               placeholder="Search by name or number..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
           <select
-            className="form-control w-full"
+            className="h-10 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-900 shadow-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20"
             value={contactType}
             onChange={(e) => setContactType(e.target.value)}
             aria-label="Filter contact type"

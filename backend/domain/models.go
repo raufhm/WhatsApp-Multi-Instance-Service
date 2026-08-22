@@ -456,6 +456,8 @@ type PlatformRepository interface {
 	HandoffConversation(tenantID, conversationID uuid.UUID, operatorID string) (Conversation, error)
 	CloseConversationWithReason(tenantID, conversationID uuid.UUID, reason string, operatorID string) (Conversation, error)
 	ReopenConversation(tenantID, conversationID uuid.UUID, operatorID string) (Conversation, error)
+	DeleteConversation(tenantID, conversationID uuid.UUID) error
+	RequestConversationDeletion(tenantID, conversationID uuid.UUID, operatorID string) error
 	AddInternalNote(tenantID, conversationID uuid.UUID, actor Actor, operatorID, content string) (ConversationMessage, error)
 	MergeConversations(tenantID, targetID, sourceID uuid.UUID, operatorID string) (Conversation, error)
 	SplitConversation(tenantID, sourceID uuid.UUID, messageIDs []uuid.UUID, operatorID string) (Conversation, error)

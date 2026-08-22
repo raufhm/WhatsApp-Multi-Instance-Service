@@ -1185,6 +1185,16 @@ func (p *PostgresStore) GetConversation(tenantID, id uuid.UUID) (domain.Conversa
 // timeline message. The account lookup is also the tenant boundary: events
 // from hosts that have not been linked to an account are ignored.
 func (p *PostgresStore) ProjectMessage(meta domain.MessageMetadata) error {
+	// Broadcast/status updates are not customer conversations. Keep this guard
+	// at the persistence boundary as well as the WhatsApp event boundary so
+	// replayed or externally dispatched events cannot create inbox records.
+	for _, address := range []string{meta.Sender, meta.Recipient} {
+		lower := strings.ToLower(strings.TrimSpace(address))
+		if lower == "status" || lower == "status@g.us" || strings.HasSuffix(lower, "@broadcast") || strings.HasSuffix(lower, "@newsletter") {
+			return nil
+		}
+	}
+
 	providerID := meta.WhatsappID
 	if providerID == "" {
 		sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%s|%s", meta.HostID, meta.Sender, meta.Recipient, meta.Content, meta.Timestamp.UTC().Format(time.RFC3339Nano))))
