@@ -1,4 +1,4 @@
-# WhatsApp Multi-Instance Service
+# Whops
 
 > A self-hosted WhatsApp inbox for small teams that want to keep the number customers already know.
 
